@@ -78,6 +78,10 @@ class Listener(object):
         Note: you can change the prefix for Event handlers from 'on' to
         whatever you like by changing the HANDLER_PREFIX class variable.
 
+        By the way, `name` must correspond to an existing attribute of the
+        object.  If not, AttributeError is raised.  I can't say whether or not
+        something is a handler if that something doesn't even exist.
+
         """
         return (name.startswith(self.HANDLER_PREFIX) and
                 type(getattr(self, name)) is types.MethodType)
@@ -160,8 +164,10 @@ class EventManager(object):
             if listener in handlers:
                 raise AlreadyRegisteredError()
             else:
-                handlers[listener] = handler
-        print self.strHandlers()
+                # Here I only store the function of the bound method object.
+                # If I don't, I keep a pointer to the instance, and therefore
+                # it never leaves the dictionary.
+                handlers[listener] = handler.im_func
 
     def unregister(self, listener):
         """Ask the EventManager to stop sending Events to that Listener."""
@@ -187,6 +193,6 @@ class EventManager(object):
             event_name = event.__class__.__name__
             handlers = self._handlers.get(event_name, None)
             if handlers:
-                for handler in handlers.values():
-                    handler(event)
+                for listener, handler in handlers.iteritems():
+                    handler(listener, event)
         del self._event_queue[:]
