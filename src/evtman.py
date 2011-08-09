@@ -28,7 +28,6 @@ class NotRegisteredError(EvtManError):
 # is all they need.
 class Event(object):
     """Base abstract class for events used by Listeners to communicate."""
-    name = "base event"
     attributes = ()
     def __init__(self, *args):
         """Create a new event.
@@ -55,7 +54,7 @@ class Event(object):
         params = ', '.join(pieces)
         return "%s(%s)" % (self.__class__.__name__, params)
     def __str__(self):
-        lines = [self.name]
+        lines = [self.__class__.__name__]
         for attribute in self.attributes:
             lines.append("    %s = %r" % (attribute, getattr(self, attribute)))
         return '\n'.join(lines)
@@ -193,6 +192,62 @@ class EventManager(object):
             event_name = event.__class__.__name__
             handlers = self._handlers.get(event_name, None)
             if handlers:
-                for listener, handler in handlers.iteritems():
+                for listener, handler in handlers.items():
+                    # I iterate over a copy of the items because the copy is
+                    # guaranteed not to change in size, while it is very
+                    # possible to have the handlers dictionary change during
+                    # the iteration because listeners can be (un)registered.
                     handler(listener, event)
         del self._event_queue[:]
+
+def example():
+    class CharacterMovedEvent(Event):
+        attributes = ('character_id', 'position_from', 'position_to')
+    class CharacterView(Listener):
+        def __init__(self, character_id):
+            Listener.__init__(self)
+            self._character_id = character_id
+            self._x = self._y = 0
+        def __str__(self):
+            return "%s: pos = (%i, %i)" % (self._character_id,
+                                           self._x, self._y)
+        def onCharacterMovedEvent(self, event):
+            if event.character_id == self._character_id:
+                self._x = event.position_to[0] * 32
+                self._y = 480 - event.position_to[1] * 32
+    #
+    bunny_view = CharacterView('bunny')
+    hamster_view = CharacterView('hamster')
+    event_manager = EventManager()
+    event_manager.register(bunny_view)
+    event_manager.register(hamster_view)
+    #
+    event = CharacterMovedEvent('bunny', (0, 0), (1, 2))
+    event_manager.post(event)
+    event_manager.pump()
+    #
+    print bunny_view
+    print hamster_view
+
+    class CharacterModel(Listener):
+        def __init__(self, event_manager, character_id):
+            Listener.__init__(self)
+            self._event_manager = event_manager
+            self._character_id = character_id
+            self._x = self._y = 0
+        def moveTo(self, new_x, new_y):
+            old_x = self._x
+            old_y = self._y
+            self._x = new_x
+            self._y = new_y
+            event = CharacterMovedEvent(self._character_id, (old_x, old_y), (new_x, new_y))
+            self._event_manager.post(event)
+
+    hamster_model = CharacterModel(event_manager, 'hamster')
+    event_manager.register(hamster_model)
+    hamster_model.moveTo(3, 3)
+    event_manager.pump()
+    print hamster_view
+
+if __name__ == '__main__':
+    example()
