@@ -2,30 +2,31 @@
 """
 
 """
-import pygame
+import logging
+import evtman
+import log
+import loop
+import player
+import pygame_
+import ui
+import world
 
-class Pygame(object):
-    """Context manager that initializes and closes PyGame properly."""
-    def __enter__(self):
-        unused, numfail = pygame.init()
-        if numfail:
-            print "%i Pygame module(s) could not be initialized." % numfail
-    def __exit__(self, *unused):
-        surface = pygame.display.get_surface()
-        if surface:
-            # Pygame can need a couple of seconds to close and we don't want
-            # the game to appear frozen.  So we erase the screen and display
-            # a message explaining what's going on.
-            font = pygame.font.Font(None, 32)
-            text = font.render(u"Shutting down...", True, (255, 255, 255))
-            surface.fill((0, 0, 0))
-            surface.blit(text, (0, 0))
-            pygame.display.flip()
-        pygame.quit()
+def main():
+    log.setup('infiniworld_solo.log')
+    logger = logging.getLogger()
+    logger.debug("Starting...")
+    event_manager = evtman.EventManager()
+    game_loop_controller = loop.GameLoopController(event_manager)
+    ui_controller = ui.UiController(event_manager)
+    world_ = world.WorldModel(event_manager)
+    player_ = player.PlayerController(event_manager)
+    with pygame_.Pygame():
+        pygame_view = pygame_.PygameView(event_manager,
+                                         u"Infiniworld", (800, 480))
+        pygame_controller = pygame_.PygameController(event_manager)
+        game_loop_controller.run()
+    logger.debug("Stopping...")
+    logging.shutdown()
 
 if __name__ == '__main__':
-    print "Initializing..."
-    with Pygame():
-        display = pygame.display.set_mode((800, 480))
-        print "Insert game here."
-    print "Bye!"
+    main()
