@@ -5,7 +5,9 @@
 
 import types
 import weakref
+import logging
 
+logger = logging.getLogger('evtman')
 
 class EvtManError(RuntimeError):
     """Base class for the exceptions of this module."""
@@ -29,6 +31,7 @@ class NotRegisteredError(EvtManError):
 class Event(object):
     """Base abstract class for events used by Listeners to communicate."""
     attributes = ()
+    to_log = True # Set to False in subclasses to avoid flooding the log.
     def __init__(self, *args):
         """Create a new event.
 
@@ -151,6 +154,7 @@ class EventManager(object):
 
     def register(self, listener):
         """Tell the EventManager to send Events to that Listener's handlers."""
+        logger.debug("Registering %r to %r..." % (listener, self))
         handlers_for_listener = listener.getHandlers()
         # Each handler is stored in a set of handlers corresponding to their
         # Event class name.
@@ -167,9 +171,11 @@ class EventManager(object):
                 # If I don't, I keep a pointer to the instance, and therefore
                 # it never leaves the dictionary.
                 handlers[listener] = handler.im_func
+        logger.debug("%r registered to %r." % (listener, self))
 
     def unregister(self, listener):
         """Ask the EventManager to stop sending Events to that Listener."""
+        logger.debug("Unregistering %r from %r..." % (listener, self))
         did_something = False
         for handlers in self._handlers.values():
             if listener in handlers:
@@ -177,10 +183,13 @@ class EventManager(object):
                 did_something = True
         if not did_something:
             raise NotRegisteredError()
+        logger.debug("%r unregistered from %r..." % (listener, self))
 
     def post(self, event):
         """Add an Event to the event queue."""
         self._event_queue.append(event)
+        if event.to_log:
+            logger.debug("POSTED: %r" % event)
 
     def pump(self):
         """Sends all the events of the event queue to the appropriate handlers.
@@ -199,6 +208,25 @@ class EventManager(object):
                     # the iteration because listeners can be (un)registered.
                     handler(listener, event)
         del self._event_queue[:]
+
+class SingleListener(Listener):
+    """A Listener that listens to a single event manager.
+    
+    This class is created for convenience.  In most cases, Listeners will be
+    interested in only one event_manager.  Therefore, SingleListener will be,
+    most of the time, the class you want to create your Views Models and
+    Controllers with.
+
+    """
+    def __init__(self, event_manager):
+        Listener.__init__(self)
+        self._event_manager = event_manager
+        event_manager.register(self)
+    def unregister(self):
+        self._event_manager.unregister(self)
+        self._event_manager = None
+    def post(self, event):
+        self._event_manager.post(event)
 
 def example():
     class CharacterMovedEvent(Event):
