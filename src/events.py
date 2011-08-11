@@ -1,15 +1,11 @@
 #! /usr/bin/python
 """Common events for Infiniworld.
 
-Put in a specific file to avoid circular dependencies.
-
-Any module is allowed to declare its own events though.
+Any module is allowed to create its events.  However, it is sometimes
+convenient to have some here to avoid circular dependencies.
 
 """
 from evtman import Event
-
-class QuitRequest(Event):
-    """User asked to quit the game."""
 
 class QuitEvent(Event):
     """Order the game to shut down itself.
@@ -27,4 +23,15 @@ class RenderFrameEvent(Event):
     to_log = False
 
 class PlayerMovedEvent(Event):
-    attributes = ('vector', )
+    """The player is asking to move its character.
+    
+    This is raised when the player is pressing the keys or using the joypad,
+    asking to move a character.  This event is posted by the controller in
+    charge of polling the keyboard and other input devices.  The
+    PlayerController receives it, and responds by posting a MoveEntityRequest
+    corresponding to the entity that the player is controlling.
+    
+    The best practice is to post this event ONLY when the force changes.
+
+    """
+    attributes = ('force', )

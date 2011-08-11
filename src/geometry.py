@@ -122,9 +122,9 @@ class Vector(object):
         Vector(200, 100)
 
         """
-        a = [self.x, self.y]
-        a[where] = what
-        self.x, self.y = a
+        tmp = [self.x, self.y]
+        tmp[where] = what
+        self.x, self.y = tmp
 
     def __eq__(self, other):
         """Return True if x and y are equal, False otherwise.
@@ -454,9 +454,11 @@ class Vector(object):
         return self.x * other.x + self.y * other.y
 
     def project(self, other):
+        """Return the projection of the vector onto another."""
         return self.dot(other) * other.normalized()
     
     def iproject(self, other):
+        """Replace the vector by its projection onto another."""
         self.x, self.y = self.dot(other) * other.normalized()
         return self
 
@@ -491,30 +493,72 @@ class Vector(object):
         self.y = other.y
 
     def norm(self):
+        """Return the euclidian norm of the vector."""
         return (self.x ** 2 + self.y ** 2) ** .5
 
     def normsq(self):
+        """Return the square of the euclidian norm of the vector.
+
+        This method is provided as a way to optimize things a bit: for example,
+        to find the longest vector, you don't need to compare the lengths, you
+        can also compare the square of the lengths.  You save a bit of CPU time
+        by not computing the square root.
+
+        """        
         return self.x ** 2 + self.y ** 2
 
     def normalize(self):
+        """Give the vector a norm of 1."""
         norm = (self.x ** 2 + self.y ** 2) ** .5
         self.x /= norm
         self.y /= norm
 
     def normalized(self):
+        """Return a vector of norm 1 collinear to the current vector."""
         norm = (self.x ** 2 + self.y ** 2) ** .5
         return self.__class__(self.x / norm, self.y / norm)
 
     def normal(self):
+        """Return a vector normal to the current vector.
+
+        The returned vector has a norm of 1.
+
+        Note that there are two possible normal vectors: two orientation for
+        the same direction.  This algorithm return follows the trigonometric
+        circle, operating a rotation of +pi/2.
+
+                           ^
+        ----->    gives    |
+                           |
+
+        """
         norm = (self.x ** 2 + self.y ** 2) ** .5
         return self.__class__(-self.y / norm, self.x / norm)
 
     def dist(self, other):
+        """Return the distance to another vector.
+
+        In that case, the two vectors are representing positions.
+
+        """
         return ((other.x - self.x) ** 2 + (other.y - self.y) ** 2) ** .5
 
     def distsq(self, other):
+        """Return the square of the distance to another vector.
+
+        In that case, the two vectors are representing positions.
+        
+        This method is provided as a way to optimize things a bit: for example,
+        to find the closest point, you don't need to compare distances, you
+        can also compare the square of the distances.  You save a bit of CPU
+        time by not computing the square root.
+
+        """
         return (other.x - self.x) ** 2 + (other.y - self.y) ** 2
 
+# pylint: disable-msg=C0103
+# Invalid names.  Well, I'm doing geometry here, and I'll use the notations
+# for points and vectors that I would use in real math.  Kinda.
 
 def project(A, B, C):
     """Project C onto the line (AB).
@@ -608,23 +652,13 @@ def DistPointToLine(A, B, C):
 
 
 def Between(A, B, C):
+    """Return whether or not B is between A and C.
+
+    This is a very rough way of calculating it, they don't even need to be
+    aligned.  But if they are, then this function is good.
+
+    """
     ab = B.dist(A)
     ac = C.dist(A)
     bc = C.dist(B)
     return ab <= ac and bc <= ac
-
-
-if __name__ == '__main__':
-    import doctest
-    doctest.testmod()
-    print project(Vector(0, 0), Vector(10, 0), Vector(2, 5))
-    print project(Vector(0, 0), Vector(1, 0), Vector(2, 1))
-    print
-    print InterLines((-5, 0), (5, 0), (0, -1), (2, 1))
-    print InterLines((-5, 0), (0, 0), (0, -1), (2, 1))
-    print InterLines((-5, 0), (0, 0), (0, -3), (2, -1))
-
-    A = Vector(0, 0.988912)
-    B = Vector(0, 0.990215)
-    S = Vector(0, 1.5)
-    print Between(A, S, B)

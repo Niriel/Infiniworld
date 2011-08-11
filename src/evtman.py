@@ -7,7 +7,7 @@ import types
 import weakref
 import logging
 
-logger = logging.getLogger('evtman')
+LOGGER = logging.getLogger('evtman')
 
 class EvtManError(RuntimeError):
     """Base class for the exceptions of this module."""
@@ -154,7 +154,7 @@ class EventManager(object):
 
     def register(self, listener):
         """Tell the EventManager to send Events to that Listener's handlers."""
-        logger.debug("Registering %r to %r..." % (listener, self))
+        LOGGER.debug("Registering %r to %r..." % (listener, self))
         handlers_for_listener = listener.getHandlers()
         # Each handler is stored in a set of handlers corresponding to their
         # Event class name.
@@ -171,11 +171,11 @@ class EventManager(object):
                 # If I don't, I keep a pointer to the instance, and therefore
                 # it never leaves the dictionary.
                 handlers[listener] = handler.im_func
-        logger.debug("%r registered to %r." % (listener, self))
+        LOGGER.debug("%r registered to %r." % (listener, self))
 
     def unregister(self, listener):
         """Ask the EventManager to stop sending Events to that Listener."""
-        logger.debug("Unregistering %r from %r..." % (listener, self))
+        LOGGER.debug("Unregistering %r from %r..." % (listener, self))
         did_something = False
         for handlers in self._handlers.values():
             if listener in handlers:
@@ -183,13 +183,13 @@ class EventManager(object):
                 did_something = True
         if not did_something:
             raise NotRegisteredError()
-        logger.debug("%r unregistered from %r..." % (listener, self))
+        LOGGER.debug("%r unregistered from %r..." % (listener, self))
 
     def post(self, event):
         """Add an Event to the event queue."""
         self._event_queue.append(event)
         if event.to_log:
-            logger.debug("POSTED: %r" % event)
+            LOGGER.debug("POSTED: %r" % event)
 
     def pump(self):
         """Sends all the events of the event queue to the appropriate handlers.
@@ -202,16 +202,23 @@ class EventManager(object):
             handlers = self._handlers.get(event_name, None)
             if handlers:
                 for listener, handler in handlers.items():
-                    # I iterate over a copy of the items because the copy is
-                    # guaranteed not to change in size, while it is very
-                    # possible to have the handlers dictionary change during
-                    # the iteration because listeners can be (un)registered.
+                    # We are iterating over a copy of the items.  This
+                    # guarantees us that we won't be hit by an error if the
+                    # dictionary changes size ((un)registration) during the
+                    # iteration.  However, this has some drawbacks:
+                    # * If a listener gets unregistered during the iteration,
+                    #   it will still receive the current event.
+                    # * And if a listener gets registered, it won't receive it.
+                    # I thought I could solve at least the first problem by
+                    # using viewitems, but Weak*Dictionaries don't support that
+                    # method.  The second problem is, I believe, less
+                    # important.
                     handler(listener, event)
         del self._event_queue[:]
 
 class SingleListener(Listener):
     """A Listener that listens to a single event manager.
-    
+
     This class is created for convenience.  In most cases, Listeners will be
     interested in only one event_manager.  Therefore, SingleListener will be,
     most of the time, the class you want to create your Views Models and
@@ -219,63 +226,14 @@ class SingleListener(Listener):
 
     """
     def __init__(self, event_manager):
+        """Registers the SingleListener to the given event manager."""
         Listener.__init__(self)
         self._event_manager = event_manager
         event_manager.register(self)
     def unregister(self):
+        """Unregister the SingleListener from its event manager."""
         self._event_manager.unregister(self)
         self._event_manager = None
     def post(self, event):
+        """Post an event through the SingleListener's event manager."""
         self._event_manager.post(event)
-
-def example():
-    class CharacterMovedEvent(Event):
-        attributes = ('character_id', 'position_from', 'position_to')
-    class CharacterView(Listener):
-        def __init__(self, character_id):
-            Listener.__init__(self)
-            self._character_id = character_id
-            self._x = self._y = 0
-        def __str__(self):
-            return "%s: pos = (%i, %i)" % (self._character_id,
-                                           self._x, self._y)
-        def onCharacterMovedEvent(self, event):
-            if event.character_id == self._character_id:
-                self._x = event.position_to[0] * 32
-                self._y = 480 - event.position_to[1] * 32
-    #
-    bunny_view = CharacterView('bunny')
-    hamster_view = CharacterView('hamster')
-    event_manager = EventManager()
-    event_manager.register(bunny_view)
-    event_manager.register(hamster_view)
-    #
-    event = CharacterMovedEvent('bunny', (0, 0), (1, 2))
-    event_manager.post(event)
-    event_manager.pump()
-    #
-    print bunny_view
-    print hamster_view
-
-    class CharacterModel(Listener):
-        def __init__(self, event_manager, character_id):
-            Listener.__init__(self)
-            self._event_manager = event_manager
-            self._character_id = character_id
-            self._x = self._y = 0
-        def moveTo(self, new_x, new_y):
-            old_x = self._x
-            old_y = self._y
-            self._x = new_x
-            self._y = new_y
-            event = CharacterMovedEvent(self._character_id, (old_x, old_y), (new_x, new_y))
-            self._event_manager.post(event)
-
-    hamster_model = CharacterModel(event_manager, 'hamster')
-    event_manager.register(hamster_model)
-    hamster_model.moveTo(3, 3)
-    event_manager.pump()
-    print hamster_view
-
-if __name__ == '__main__':
-    example()

@@ -1,8 +1,5 @@
 #! /usr/bin/python
-"""
-Created on May 3, 2011
-
-@author: delforge
+"""Configuration of the logging system.
 """
 import logging
 import sys

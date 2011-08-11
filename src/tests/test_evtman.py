@@ -129,14 +129,14 @@ class TestEventManager(unittest.TestCase):
         del listener
         import gc
         gc.collect()
-        
+
         handlers = event_manager._handlers
         self.assertEquals(len(handlers), 1)
         self.assertEquals(len(handlers['SubEvent']), 0)
-    
+
     def testPostAndPump(self):
         """EventManager.pump sends all the posted events to all the listeners.
-        
+
         """
         event_manager = EventManager()
         listener1 = SubListener()
