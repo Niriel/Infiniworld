@@ -104,8 +104,11 @@ class PygameView(evtman.SingleListener):
     """The root of everything that's going to be on screen."""
     def __init__(self, event_manager, title, resolution):
         evtman.SingleListener.__init__(self, event_manager)
-        self._surface = pygame.display.set_mode(resolution)
+        # For some reason, on Ubuntu 11.04, I cannot change the caption
+        # of the window once it is created, only the caption in the task bar
+        # is modified if I call set_caption after set_mode.
         pygame.display.set_caption(title)
+        self._surface = pygame.display.set_mode(resolution)
         #
         self._area_view = AreaView(self._event_manager)
         self._area_view.sprite.rect.center = self._surface.get_rect().center
