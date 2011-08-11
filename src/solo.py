@@ -27,7 +27,7 @@ def main():
         pygame_controller = pygame_.PygameController(event_manager)
         # Run the game until a QuitEvent is posted.
         game_loop_controller.run()
-    logger.debug("Stopping...")
+        logger.info("Stopping...")
     # Unregistering at the end is not necessary but I do it so that PyDev and
     # PyLint stop complaining about unused variables.
     game_loop_controller.unregister()

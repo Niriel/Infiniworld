@@ -7,6 +7,9 @@ convenient to have some here to avoid circular dependencies.
 """
 from evtman import Event
 
+# pylint: disable-msg=R0903
+# Too few public methods.  Normal, they're events
+
 class QuitEvent(Event):
     """Order the game to shut down itself.
 
@@ -22,7 +25,11 @@ class RenderFrameEvent(Event):
     """Draw things on the screen."""
     to_log = False
 
-class PlayerMovedEvent(Event):
+# Commands are Events that are produced by direct order from the player. They
+# are translations of keypresses.  As such, they know NOTHING about entities,
+# areas, etc..  Ideally, a keyboard controller should only issue commands.
+
+class MoveCommand(Event):
     """The player is asking to move its character.
     
     This is raised when the player is pressing the keys or using the joypad,
@@ -35,3 +42,21 @@ class PlayerMovedEvent(Event):
 
     """
     attributes = ('force', )
+
+class CreateAreaCommand(Event):
+    """Used in test/debug to create areas."""
+
+class CreateEntityCommand(Event):
+    """Used in test/debug to create areas."""
+
+class ViewNextAreaCommand(Event):
+    """Used in test/debug to create areas."""
+    attributes = ('offset', )
+    
+class ControlNextEntityCommand(Event):
+    """Used in test/debug to create areas."""
+    attributes = ('offset', )
+
+class MoveEntityToNextAreaCommand(Event):
+    """Used in test/debug to create areas."""
+    attributes = ('offset', )

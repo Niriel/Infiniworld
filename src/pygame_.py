@@ -1,12 +1,13 @@
 """Code that is specific to pygame."""
 from __future__ import division
+import logging
+
 import pygame
+
 import events
 import evtman
 import geometry
 import world # For its events ONLY.
-
-import logging
 
 LOGGER = logging.getLogger('pygame')
 
@@ -31,7 +32,31 @@ class Pygame(object):
             surface.blit(text, (0, 0))
             pygame.display.flip()
         pygame.quit()
+
+class FPSSprite(pygame.sprite.Sprite):
+    """Sprite that displays the number of frames per second."""
+    def __init__(self, pos):
+        pygame.sprite.Sprite.__init__(self)
+        self._clock = pygame.time.Clock()
+        self._font = pygame.font.Font(None, 24)
+        self._pos = pos
+        self._old_fps = -1
+        self.image = None
+        self.rect = None
+    def update(self):
+        """Use the pygame clock to get the FPS, and makes an image for it."""
+        self._clock.tick()
+        fps = self._clock.get_fps()
+        if fps == self._old_fps:
+            return
+        self._old_fps = fps
+        text = "%i FPS" % fps
+        self.image = self._font.render(text, True,
+                                       (255, 255, 255), (32, 0, 32))
+        self.rect = self.image.get_rect()
+        self.rect.topleft = self._pos
 # pylint: enable-msg=R0903
+
 
 class PygameController(evtman.SingleListener):
     """Reads the input from the keyboard and mouse from pygame."""
@@ -68,8 +93,32 @@ class PygameController(evtman.SingleListener):
         if x or y:
             vector.normalize()
         if vector != self._old_vector:
-            self.post(events.PlayerMovedEvent(vector.copy()))
+            self.post(events.MoveCommand(vector.copy()))
             self._old_vector = vector
+
+    def keyDown(self, key):
+        """Process pygame KEYDOWN events."""
+        if key == pygame.K_ESCAPE:
+            self.post(events.QuitEvent())
+
+        elif key == pygame.K_RETURN:
+            self.post(events.CreateEntityCommand())
+        elif key == pygame.K_SEMICOLON:
+            self.post(events.ControlNextEntityCommand(-1))
+        elif key == pygame.K_QUOTE:
+            self.post(events.ControlNextEntityCommand(1))
+
+        elif key == pygame.K_BACKSLASH:
+            self.post(events.CreateAreaCommand())
+        elif key == pygame.K_LEFTBRACKET:
+            self.post(events.ViewNextAreaCommand(-1))
+        elif key == pygame.K_RIGHTBRACKET:
+            self.post(events.ViewNextAreaCommand(1))
+
+        elif key == pygame.K_PERIOD:
+            self.post(events.MoveEntityToNextAreaCommand(-1))
+        elif key == pygame.K_SLASH:
+            self.post(events.MoveEntityToNextAreaCommand(1))
 
     def pumpPygameEvents(self):
         """Process the events sent by pygame.
@@ -81,18 +130,14 @@ class PygameController(evtman.SingleListener):
         for pygame_event in pygame.event.get():
             pygame_event_type = pygame_event.type
             if pygame_event_type != pygame.MOUSEMOTION:
-                LOGGER.debug(pygame_event)
+                #LOGGER.debug(pygame_event)
+                pass
 
             if pygame_event_type == pygame.QUIT:
                 self.post(events.QuitEvent())
 
             elif pygame_event_type == pygame.KEYDOWN:
-                key = pygame_event.key
-                if key == pygame.K_ESCAPE:
-                    # Let's not do that for real in the future, okay?
-                    self.post(events.QuitEvent())
-                elif key == pygame.K_RETURN:
-                    self.post(world.CreateEntityRequest())
+                self.keyDown(pygame_event.key)
         self._scanKeyboard()
 
     def onProcessInputsEvent(self, unused):
@@ -115,9 +160,13 @@ class PygameView(evtman.SingleListener):
         #
         self._group = pygame.sprite.Group()
         self._group.add(self._area_view.sprite)
+        #
+        fps_sprite = FPSSprite((0, 0))
+        self._group.add(fps_sprite)
     def render(self):
         """Display things on screen."""
         self._area_view.render()
+        self._group.update()
         self._group.draw(self._surface)
         pygame.display.flip()
     def onRenderFrameEvent(self, unused):
@@ -183,6 +232,15 @@ class CoordinatesConverter(object):
 
 class EntityView(evtman.SingleListener):
     """Managed the appearance of an entity on screen."""
+    @classmethod
+    def fromSummary(cls, event_manager, summary):
+        """Alternative constructor for using a summary to configure the View.
+        
+        """
+        instance = cls(event_manager, summary['entity_id'])
+        instance.applySummary(summary)
+        return instance
+ 
     def __init__(self, event_manager, entity_id):
         evtman.SingleListener.__init__(self, event_manager)
         self._entity_id = entity_id
@@ -192,14 +250,20 @@ class EntityView(evtman.SingleListener):
         self.sprite = None
         self.createSprite()
         self._dirty = True
+    def applySummary(self, summary):
+        """Configure the view using the info from the summary."""
+        if summary['entity_id'] != self._entity_id:
+            raise ValueError("entity_id mismatch")
+        self._pos.icopy(summary['pos'])
     def createSprite(self):
         """Instantiate the sprite, its image and its rect."""
         self.sprite = pygame.sprite.Sprite()
         # pylint: disable-msg=E1121
         # Too many positional arguments for function call.
         # Somehow pylint is confused by Surface.
-        self.sprite.image = pygame.Surface((32, 32))
+        self.sprite.image = pygame.Surface((32, 32), pygame.SRCALPHA)
         self.sprite.rect = self.sprite.image.get_rect()
+        # The position part of the rect is assigned by the AreaView.
     def render(self):
         """(Re)draw the image of the sprite.
         
@@ -208,7 +272,14 @@ class EntityView(evtman.SingleListener):
         """
         if not self._dirty:
             return
-        self.sprite.image.fill((255, 255, 255))
+        self.sprite.image.fill((255, 255, 255, 255))
+        font = pygame.font.Font(None, 24)
+        text = str(self._entity_id)
+        text_image = font.render(text, True, (64, 64, 64, 0))
+        text_rect = text_image.get_rect()
+        image_rect = self.sprite.image.get_rect()
+        text_rect.center = image_rect.center
+        self.sprite.image.blit(text_image, text_rect)
         self._dirty = False
     def setCoords(self, vector):
         """Set the world position of the entity."""
@@ -231,6 +302,8 @@ class AreaView(evtman.SingleListener):
     """
     def __init__(self, event_manager):
         evtman.SingleListener.__init__(self, event_manager)
+        # This view is sensitive to one area only.
+        self._area_id = None # No area at all for now.
         # The area view displays the landscape, objects, entities, etc..
         self.sprite = None
         self.createSprite()
@@ -257,6 +330,13 @@ class AreaView(evtman.SingleListener):
         entity_view = EntityView(self._event_manager, entity_id)
         self._entities_group.add(entity_view.sprite)
         self._entities[entity_id] = entity_view
+        return entity_view
+    def createEntityViewFromSummary(self, summary):
+        """Create a new view to display an entity of the world."""
+        entity_view = EntityView.fromSummary(self._event_manager, summary)
+        self._entities_group.add(entity_view.sprite)
+        self._entities[summary['entity_id']] = entity_view
+        return entity_view
     def destroyEntityView(self, entity_id):
         """Remove an entity view to stop displaying an entity of the world.
 
@@ -268,17 +348,45 @@ class AreaView(evtman.SingleListener):
         entity_view = self._entities.pop(entity_id)
         entity_view.unregister()
         self._entities_group.remove(entity_view.sprite)
+    def setAreaId(self, area_id):
+        """Select the area that we want to display."""
+        if area_id == self._area_id:
+            return
+        # Empty everything.
+        for entity_id in self._entities.keys():
+            self.destroyEntityView(entity_id)
+        # Ask for new stuff.
+        self._area_id = area_id
+        self.post(world.AreaContentRequest(area_id))
     def render(self):
         """Draw the landscape, the characters, etc.."""
         image = self.sprite.image
         image.fill((64, 64, 64))
+        if self._area_id is None:
+            return
         for entity in self._entities.itervalues():
             entity.worldToPix(self._coord_conv)
             entity.render()
         self._entities_group.draw(image)
-    def onEntityCreatedEvent(self, event):
-        """An new entity appeared in the world."""
-        self.createEntityView(event.entity_id)
     def onEntityDestroyedEvent(self, event):
         """An entity was removed from the world."""
-        self.destroyEntityView(event.entity_id)
+        if event.entity_id in self._entities:
+            self.destroyEntityView(event.entity_id)
+    def onEntityEnteredAreaEvent(self, event):
+        """An entity entered an area."""
+        if event.area_id == self._area_id:
+            entity_view = self.createEntityView(event.entity_id)
+            entity_view.setCoords(event.pos)
+    def onEntityLeftAreaEvent(self, event):
+        """An entity left an area."""
+        if event.area_id == self._area_id:
+            self.destroyEntityView(event.entity_id)
+    def onAreaContentEvent(self, event):
+        """We were sent a list of what we should display."""
+        if event.area_id == self._area_id:
+            for summary in event.entity_summaries:
+                self.createEntityViewFromSummary(summary)
+    def onViewAreaEvent(self, event):
+        """We are looking at a new area."""
+        # TODO: remove.
+        self.setAreaId(event.area_id)

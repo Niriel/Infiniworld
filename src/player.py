@@ -2,8 +2,11 @@
 """PlayerController
 
 """
+import logging
 import evtman
 import world
+
+LOGGER = logging.getLogger("player")
 
 class PlayerController(evtman.SingleListener):
     """Middle man between the keyboard and the controlled character.
@@ -42,13 +45,27 @@ class PlayerController(evtman.SingleListener):
     def __init__(self, event_manager):
         evtman.SingleListener.__init__(self, event_manager)
         self._entity_id = None
-    def onPlayerMovedEvent(self, event):
+        self._area_id = None
+
+    def onMoveCommand(self, event):
         """Player says move.  Move what ?"""
         if self._entity_id is not None:
             self.post(world.MoveEntityRequest(self._entity_id, event.force))
-    def onEntityCreatedEvent(self, event):
-        """TEMPORARY, DEBUG ONLY."""
-        # TODO: remove
-        # This is not serious of course.  We will need a better way of
-        # assigning an entity to a player.
+    def onViewNextAreaCommand(self, event):
+        """Debug/Test. Move to the next area."""
+        self.post(world.ViewNextAreaRequest(self._area_id, event.offset))
+    def onControlNextEntityCommand(self, event):
+        """Debug/Test. Control the next entity."""
+        self.post(world.ControlNextEntityRequest(self._entity_id, event.offset))
+    def onViewAreaEvent(self, event):
+        """Debug/Test. Remember the current area."""
+        self._area_id = event.area_id
+        LOGGER.info("Viewing area %r.", event.area_id)
+    def onControlEntityEvent(self, event):
+        """Remember the current entity.""" 
         self._entity_id = event.entity_id
+        LOGGER.info("Controlling entity %r.", event.entity_id)
+    def onMoveEntityToNextAreaCommand(self, event):
+        """Debug/Test. Change area of the entity."""
+        self.post(world.MoveEntityToNextAreaRequest(self._entity_id,
+                                                    event.offset))

@@ -40,9 +40,10 @@ class Event(object):
         """
         object.__init__(self)
         if len(self.attributes) != len(args):
-            msg = ("Incorrect number of arguments: %i needed, %i provided "
-                   "(attributes list: %r)." %
-                   (len(self.attributes), len(args), self.attributes))
+            msg = ("Incorrect number of arguments for %s: %i needed, "
+                   "%i provided (attributes list: %r)." %
+                   (self.__class__.__name__,
+                    len(self.attributes), len(args), self.attributes))
             raise TypeError(msg)
         pairs = zip(self.attributes, args)
         for name, value in pairs:
