@@ -274,7 +274,7 @@ class EntityView(evtman.SingleListener):
         evtman.SingleListener.__init__(self, event_manager)
         self._entity_id = entity_id
         # World coordinates.
-        self._pos = geometry.Vector()
+        self.pos = geometry.Vector()
         #
         self.sprite = None
         self.createSprite()
@@ -283,7 +283,7 @@ class EntityView(evtman.SingleListener):
         """Configure the view using the info from the summary."""
         if summary['entity_id'] != self._entity_id:
             raise ValueError("entity_id mismatch")
-        self._pos.icopy(summary['pos'])
+        self.pos.icopy(summary['pos'])
     def createSprite(self):
         """Instantiate the sprite, its image and its rect."""
         self.sprite = pygame.sprite.Sprite()
@@ -312,10 +312,10 @@ class EntityView(evtman.SingleListener):
         self._dirty = False
     def setCoords(self, vector):
         """Set the world position of the entity."""
-        self._pos.icopy(vector)
+        self.pos.icopy(vector)
     def worldToPix(self, coord_conv):
         """Calculate the pixel position of the entity."""
-        self.sprite.rect.center = coord_conv.worldToPix(self._pos)
+        self.sprite.rect.center = coord_conv.worldToPix(self.pos)
     def onEntityMovedEvent(self, event):
         """An EntityModel has changed position."""
         if event.entity_id == self._entity_id:
@@ -345,6 +345,9 @@ class AreaView(evtman.SingleListener):
         # screen coordinates (in pixels).
         self._coord_conv = CoordinatesConverter()
         self._coord_conv.setRefPix((size[0] // 2, size[1] // 2))
+        # The view is centered on that entity.  If None, then it's left where
+        # it is.
+        self._follow_entity_id = None
         # The area view displays the landscape, objects, entities, etc..
         self.sprite = None
         self.createSprite(size)
@@ -438,6 +441,14 @@ class AreaView(evtman.SingleListener):
         image.fill((64, 64, 64))
         if self._area_id is None:
             return
+        # Center the view.
+        if self._follow_entity_id is not None:
+            try:
+                entity = self._entities[self._follow_entity_id]
+            except KeyError:
+                pass # We just leave the converter where it is.
+            else:
+                self._coord_conv.setRefWorld(entity.pos)
         # Tile map.
         self.renderTiles()
         # Entities.
@@ -445,6 +456,8 @@ class AreaView(evtman.SingleListener):
             entity.worldToPix(self._coord_conv)
             entity.render()
         self._entities_group.draw(image)
+    def setFollowEntity(self, entity_id):
+        self._follow_entity_id = entity_id
     def onEntityDestroyedEvent(self, event):
         """An entity was removed from the world."""
         if event.entity_id in self._entities:
@@ -468,3 +481,6 @@ class AreaView(evtman.SingleListener):
         """We are looking at a new area."""
         # TODO: remove.
         self.setAreaId(event.area_id)
+    def onControlEntityEvent(self, event):
+        """A new entity is controlled."""
+        self.setFollowEntity(event.entity_id)
