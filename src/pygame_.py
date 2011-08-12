@@ -1,6 +1,7 @@
 """Code that is specific to pygame."""
 from __future__ import division
 import logging
+import math
 
 import pygame
 
@@ -57,6 +58,26 @@ class FPSSprite(pygame.sprite.Sprite):
         self.rect.topleft = self._pos
 # pylint: enable-msg=R0903
 
+def makeTileImages():
+    """Generate beautiful bitmaps for displaying sprites."""
+    size = (32, 32)
+    # From http://hyperphysics.phy-astr.gsu.edu/hbase/vision/cie.html
+    colors = {world.tile.NATURE_DEEPWATER: (92, 138, 202),
+              world.tile.NATURE_DIRT: (152, 118, 84),
+              world.tile.NATURE_GRASS: (0, 163, 71),
+              world.tile.NATURE_SAND: (234, 231, 94),
+              world.tile.NATURE_SHALLOWWATER: (110, 175, 199),
+              world.tile.NATURE_STONE: (128, 128, 128)}
+    images = {}
+    for nature, color in colors.iteritems():
+        # pylint: disable-msg=E1121
+        # Too many positional arguments.  Nope.  Pylint's weird here.
+        image = pygame.Surface(size)
+        # pylint: enable-msg=E1121
+        image.fill(color)
+        images[nature] = image
+    return images
+TILE_IMAGES = None
 
 class PygameController(evtman.SingleListener):
     """Reads the input from the keyboard and mouse from pygame."""
@@ -155,7 +176,7 @@ class PygameView(evtman.SingleListener):
         pygame.display.set_caption(title)
         self._surface = pygame.display.set_mode(resolution)
         #
-        self._area_view = AreaView(self._event_manager)
+        self._area_view = AreaView(self._event_manager, (13 * 32, 13 * 32))
         self._area_view.sprite.rect.center = self._surface.get_rect().center
         #
         self._group = pygame.sprite.Group()
@@ -229,6 +250,14 @@ class CoordinatesConverter(object):
         # says otherwise.
         return (self._ref_pix_x + int(round(offset.x)),
                 self._ref_pix_y - int(round(offset.y)))
+    def pixToWorld(self, (pix_x, pix_y)):
+        """Return the world coordinates corresponding to the given pixel."""
+        offset_x = pix_x - self._ref_pix_x
+        offset_y = self._ref_pix_y - pix_y
+        offset = geometry.Vector(offset_x, offset_y)
+        pos_vector = offset / self.zoom + self._ref_world
+        return pos_vector
+
 
 class EntityView(evtman.SingleListener):
     """Managed the appearance of an entity on screen."""
@@ -240,7 +269,7 @@ class EntityView(evtman.SingleListener):
         instance = cls(event_manager, summary['entity_id'])
         instance.applySummary(summary)
         return instance
- 
+
     def __init__(self, event_manager, entity_id):
         evtman.SingleListener.__init__(self, event_manager)
         self._entity_id = entity_id
@@ -300,31 +329,41 @@ class AreaView(evtman.SingleListener):
     direct view on the world landscape.
 
     """
-    def __init__(self, event_manager):
+    def __init__(self, event_manager, size):
         evtman.SingleListener.__init__(self, event_manager)
         # This view is sensitive to one area only.
         self._area_id = None # No area at all for now.
-        # The area view displays the landscape, objects, entities, etc..
-        self.sprite = None
-        self.createSprite()
         # It owns the EntityViews.
         self._entities = {}
         # Entities have sprites that are added to this group for display
         # purposes.
         self._entities_group = pygame.sprite.Group()
+        # The information about the floor is stored in tiles:
+        self._tilemap = {}
+        self._visible_tiles_region = pygame.Rect((0, 0), (0, 0))
         # We need something to convert world coordinates (in meters) to
         # screen coordinates (in pixels).
         self._coord_conv = CoordinatesConverter()
-        self._coord_conv.setRefPix((self.sprite.rect.width // 2,
-                                    self.sprite.rect.height // 2))
-    def createSprite(self):
+        self._coord_conv.setRefPix((size[0] // 2, size[1] // 2))
+        # The area view displays the landscape, objects, entities, etc..
+        self.sprite = None
+        self.createSprite(size)
+        #
+        # There should be a pygame window open by now, so pygame knows which
+        # format is better for the tile images.  Creating them now !
+        global TILE_IMAGES
+        TILE_IMAGES = makeTileImages()
+    def createSprite(self, size):
         """Instantiate the sprite, its image and its rect."""
         self.sprite = pygame.sprite.Sprite()
         # pylint: disable-msg=E1121
         # Too many positional arguments for function call.
         # Somehow pylint is confused by Surface.
-        self.sprite.image = pygame.Surface((13 * 32, 13 * 32))
-        self.sprite.rect = self.sprite.image.get_rect()
+        self.sprite.image = pygame.Surface(size)
+        # pylint: enable-msg=E1121
+        rect = self.sprite.image.get_rect()
+        self.sprite.rect = rect
+        self._visible_tiles_region.size = size
     def createEntityView(self, entity_id):
         """Create a new view to display an entity of the world."""
         entity_view = EntityView(self._event_manager, entity_id)
@@ -357,13 +396,51 @@ class AreaView(evtman.SingleListener):
             self.destroyEntityView(entity_id)
         # Ask for new stuff.
         self._area_id = area_id
-        self.post(world.AreaContentRequest(area_id))
+        self.post(world.events.AreaContentRequest(area_id))
+    def renderTiles(self):
+        """Displays the tiles."""
+        # We do not want to process ALL the tiles of the tile map.  So we look
+        # for those that have coordinates matching our view.
+        # I did try other methods:
+        # * Blit everything, hoping that pygame is smart enough to do nothing
+        #   when there is nothing to do: good result on 32*32 maps.
+        # * Test for the intersection of the tile rect with the view rect:
+        #   horrible all the time.
+        # And of course it dit not scale well at all, a 128*128 map was
+        # bringing me down to 5 FPS.  So we do not look at all the tiles
+        # anymore, we prune.
+        size = self._visible_tiles_region.size
+        # The weird mix of max and min is due to the fact that the y axis
+        # is reversed on the display.
+        x_min, y_max = self._coord_conv.pixToWorld((0, 0))
+        x_max, y_min = self._coord_conv.pixToWorld(size)
+        x_min = int(math.floor(x_min))
+        y_min = int(math.floor(y_min))
+        x_max = int(math.ceil(x_max))
+        y_max = int(math.ceil(y_max))
+        tile_rect = pygame.Rect((0, 0), (32, 32))
+        image = self.sprite.image
+        for y in xrange(y_min, y_max + 1):
+            for x in xrange(x_min, x_max + 1):
+                try:
+                    tile = self._tilemap[(x, y)]
+                except KeyError:
+                    pass
+                else:
+                    pos = self._coord_conv.worldToPix(geometry.Vector(x, y))
+                    tile_rect.center = pos
+                    tile_image = TILE_IMAGES[tile[0]] # 0: nature.
+                    image.blit(tile_image, tile_rect)
+
     def render(self):
         """Draw the landscape, the characters, etc.."""
         image = self.sprite.image
         image.fill((64, 64, 64))
         if self._area_id is None:
             return
+        # Tile map.
+        self.renderTiles()
+        # Entities.
         for entity in self._entities.itervalues():
             entity.worldToPix(self._coord_conv)
             entity.render()
@@ -384,8 +461,9 @@ class AreaView(evtman.SingleListener):
     def onAreaContentEvent(self, event):
         """We were sent a list of what we should display."""
         if event.area_id == self._area_id:
-            for summary in event.entity_summaries:
+            for summary in event.entities:
                 self.createEntityViewFromSummary(summary)
+            self._tilemap = event.tilemap
     def onViewAreaEvent(self, event):
         """We are looking at a new area."""
         # TODO: remove.

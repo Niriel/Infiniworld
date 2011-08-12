@@ -19,7 +19,7 @@ def main():
     logger.debug("Starting...")
     event_manager = evtman.EventManager()
     game_loop_controller = loop.GameLoopController(event_manager)
-    world_model = world.WorldModel(event_manager)
+    world_model = world.gen.GenerateWorld(event_manager, 3, (128, 128))
     player_controller = player.PlayerController(event_manager)
     with pygame_.Pygame():
         pygame_view = pygame_.PygameView(event_manager,

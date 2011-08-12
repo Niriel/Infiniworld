@@ -50,13 +50,16 @@ class PlayerController(evtman.SingleListener):
     def onMoveCommand(self, event):
         """Player says move.  Move what ?"""
         if self._entity_id is not None:
-            self.post(world.MoveEntityRequest(self._entity_id, event.force))
+            self.post(world.events.MoveEntityRequest(self._entity_id,
+                                                     event.force))
     def onViewNextAreaCommand(self, event):
         """Debug/Test. Move to the next area."""
-        self.post(world.ViewNextAreaRequest(self._area_id, event.offset))
+        self.post(world.events.ViewNextAreaRequest(self._area_id,
+                                                   event.offset))
     def onControlNextEntityCommand(self, event):
         """Debug/Test. Control the next entity."""
-        self.post(world.ControlNextEntityRequest(self._entity_id, event.offset))
+        self.post(world.events.ControlNextEntityRequest(self._entity_id,
+                                                        event.offset))
     def onViewAreaEvent(self, event):
         """Debug/Test. Remember the current area."""
         self._area_id = event.area_id
@@ -67,5 +70,5 @@ class PlayerController(evtman.SingleListener):
         LOGGER.info("Controlling entity %r.", event.entity_id)
     def onMoveEntityToNextAreaCommand(self, event):
         """Debug/Test. Change area of the entity."""
-        self.post(world.MoveEntityToNextAreaRequest(self._entity_id,
-                                                    event.offset))
+        self.post(world.events.MoveEntityToNextAreaRequest(self._entity_id,
+                                                           event.offset))

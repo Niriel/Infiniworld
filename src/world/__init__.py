@@ -1,8 +1,13 @@
 """World model."""
+# Standard library.
 import logging
 import weakref
-import geometry
+# My stuff.
+import events
 import evtman
+import gen
+import geometry
+import tile
 
 LOGGER = logging.getLogger('world')
 
@@ -12,75 +17,6 @@ class AlreadyInAreaError(WorldError):
     """The area already contains what you are trying to add to it."""
 class NotInAreaError(WorldError):
     """The area does not contain that object."""
-
-# pylint: disable-msg=R0903
-# Too few public methods.  Events don't need public methods.
-class CreateEntityRequest(evtman.Event):
-    """THIS EVENT IS NOT MEANT TO LAST."""
-    # TODO: remove.
-
-class CreateAreaRequest(evtman.Event):
-    """THIS EVENT IS NOT MEANT TO LAST."""
-    # TODO: remove.
-
-class ViewNextAreaRequest(evtman.Event):
-    """THIS EVENT IS NOT MEANT TO LAST."""
-    # TODO: remove.
-    attributes = ('area_id', 'offset')
-
-class ViewAreaEvent(evtman.Event):
-    """THIS EVENT IS NOT MEANT TO LAST."""
-    # TODO: remove.
-    attributes = ('area_id',)
-    
-class ControlNextEntityRequest(evtman.Event):
-    """THIS EVENT IS NOT MEANT TO LAST."""
-    # TODO: remove.
-    attributes = ('entity_id', 'offset')
-
-class ControlEntityEvent(evtman.Event):
-    """THIS EVENT IS NOT MEANT TO LAST."""
-    # TODO: remove.
-    attributes = ('entity_id', )
-
-class MoveEntityToNextAreaRequest(evtman.Event):
-    """THIS EVENT IS NOT MEANT TO LAST."""
-    # TODO: remove.
-    attributes = ('entity_id', 'offset', )
-
-class EntityCreatedEvent(evtman.Event):
-    """A new entity exists in the world."""
-    attributes = ('entity_id', )
-
-class EntityDestroyedEvent(evtman.Event):
-    """An entity is totally and definitively removed from the world."""
-    attributes = ('entity_id',)
-
-class MoveEntityRequest(evtman.Event):
-    """An entity is pushed in a direction by a player."""
-    attributes = ('entity_id', 'force',)
-
-class EntityMovedEvent(evtman.Event):
-    """An entity is in a new position."""
-    attributes = ('entity_id', 'pos',)
-
-class EntityEnteredAreaEvent(evtman.Event):
-    """An entity entered an area."""
-    attributes = ('entity_id', 'area_id', 'pos')
-
-class EntityLeftAreaEvent(evtman.Event):
-    """An entity left an area."""
-    attributes = ('entity_id', 'area_id')
-
-class AreaContentRequest(evtman.Event):
-    """Send that when you need to know what an area contains."""
-    attributes = ('area_id',)
-
-class AreaContentEvent(evtman.Event):
-    """Response to an AreaContentRequest."""
-    attributes = ('area_id', 'entity_summaries')
-
-# pylint: enable-msg=R0903
 
 def nextThing(things, thing, offset):
     """Return the previous or next element in an array.
@@ -136,7 +72,7 @@ class EntityModel(evtman.SingleListener):
         self.entity_id = entity_id
         self.area_id = None
         self._pos = geometry.Vector()
-        self.post(EntityCreatedEvent(entity_id))
+        self.post(events.EntityCreatedEvent(entity_id))
         LOGGER.info("Entity %i created.", entity_id)
     @property
     def pos(self):
@@ -155,7 +91,7 @@ class EntityModel(evtman.SingleListener):
     def moveTo(self, pos):
         """Set the position of the entity."""
         self._pos.icopy(pos)
-        self.post(EntityMovedEvent(self.entity_id, self._pos))
+        self.post(events.EntityMovedEvent(self.entity_id, self._pos))
     def onMoveEntityRequest(self, event):
         """Push the entity according to the player's wish.
 
@@ -180,6 +116,7 @@ class AreaModel(evtman.SingleListener):
         # the World itself, not by the area.  They can move between areas, or
         # even be in no area at all.
         self._entities = weakref.WeakValueDictionary()
+        self.tile_map = tile.TileMap() 
     def addEntity(self, entity):
         """Add the entity to the area.
 
@@ -194,7 +131,8 @@ class AreaModel(evtman.SingleListener):
         if entity_id in self._entities:
             raise AlreadyInAreaError()
         self._entities[entity_id] = entity
-        self.post(EntityEnteredAreaEvent(entity_id, self._area_id, entity.pos))
+        self.post(events.EntityEnteredAreaEvent(entity_id,
+                                                self._area_id, entity.pos))
     def removeEntity(self, entity):
         """Remove the entity from the area."""
         entity_id = entity.entity_id
@@ -203,7 +141,7 @@ class AreaModel(evtman.SingleListener):
         except KeyError:
             raise NotInAreaError()
         entity.area_id = None
-        self.post(EntityLeftAreaEvent(entity_id, self._area_id))
+        self.post(events.EntityLeftAreaEvent(entity_id, self._area_id))
     def onAreaContentRequest(self, event):
         """Someone asks what's in this area.
 
@@ -236,9 +174,11 @@ class AreaModel(evtman.SingleListener):
 
         """
         if event.area_id == self._area_id:
-            summaries = [entity.makeSummary()
+            entities = [entity.makeSummary()
                          for entity in self._entities.itervalues()]
-            self.post(AreaContentEvent(self._area_id, summaries))
+            tilemap = self.tile_map.makeSummary()
+            self.post(events.AreaContentEvent(self._area_id,
+                                              entities, tilemap))
 
 class WorldModel(evtman.SingleListener):
     """The unique and authoritative top-level representation of the game world.
@@ -250,6 +190,13 @@ class WorldModel(evtman.SingleListener):
         self._entities = {}
         self._area_id_max = -1
         self._areas = {}
+    def unregister(self):
+        """Also unregisters its content."""
+        for area in self._areas.values():
+            area.unregister()
+        for entity in self._entities.values():
+            entity.unregister()
+        evtman.SingleListener.unregister(self)
     def createArea(self):
         """Create a new area."""
         self._area_id_max += 1
@@ -257,17 +204,19 @@ class WorldModel(evtman.SingleListener):
         area = AreaModel(self._event_manager, area_id)
         self._areas[area_id] = area
         LOGGER.info("Area %i created.", area_id)
+        return area
     def createEntity(self):
         """Populate the world with a new entity."""
         self._entity_id_max += 1
         entity_id = self._entity_id_max
         entity = EntityModel(self._event_manager, entity_id)
         self._entities[entity_id] = entity
+        return entity
     def destroyEntity(self, entity_id):
         """Remove an entity from the world, forever."""
         entity = self._entities.pop(entity_id)
         entity.unregister()
-        self.post(EntityDestroyedEvent(entity_id))
+        self.post(events.EntityDestroyedEvent(entity_id))
     def moveEntityToArea(self, entity_id, area_id_new):
         """Move the entity to the new area.
 
@@ -309,12 +258,12 @@ class WorldModel(evtman.SingleListener):
         """Player wants to see another area."""
         # TODO: remove
         area_id = self.nextArea(event.area_id, event.offset)
-        self.post(ViewAreaEvent(area_id))
+        self.post(events.ViewAreaEvent(area_id))
     def onControlNextEntityRequest(self, event):
         """Player wants to control another entity."""
         # TODO: remove
         entity_id = self.nextEntity(event.entity_id, event.offset)
-        self.post(ControlEntityEvent(entity_id))
+        self.post(events.ControlEntityEvent(entity_id))
     def onMoveEntityToNextAreaRequest(self, event):
         """Player wants to move an entity to another area."""
         # TODO: remove
