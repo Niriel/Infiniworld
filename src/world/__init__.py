@@ -7,6 +7,7 @@ import events
 import evtman
 import gen
 import geometry
+import physics
 import tile
 
 LOGGER = logging.getLogger('world')
@@ -71,36 +72,31 @@ class EntityModel(evtman.SingleListener):
         evtman.SingleListener.__init__(self, event_manager)
         self.entity_id = entity_id
         self.area_id = None
-        self._pos = geometry.Vector()
+        # By default, an entity has a mass of 60 kg.  Yeah.
+        self.particle = physics.Particle(60, geometry.Vector())
+        self._walk_force = physics.ConstantForce(geometry.Vector())
+        self._friction_force = physics.KineticFrictionForce(-100)
+        self.particle.forces.add(self._walk_force)
+        self.particle.forces.add(self._friction_force)
+        self._walk_strentgh = 1000
+        #
         self.post(events.EntityCreatedEvent(entity_id))
         LOGGER.info("Entity %i created.", entity_id)
-    @property
-    def pos(self):
-        """Read-only access to the position.
-
-        The returned vector is a copy of the internal position vector to
-        prevent accidental modifications.
-
-        """
-        return self._pos.copy()
     def makeSummary(self):
         """Return a dictionary with enough info the the View to work with."""
         return {"entity_id" : self.entity_id,
                 "area_id" : self.area_id,
-                "pos" : self._pos.copy()}
-    def moveTo(self, pos):
-        """Set the position of the entity."""
-        self._pos.icopy(pos)
-        self.post(events.EntityMovedEvent(self.entity_id, self._pos))
+                "pos": self.particle.pos.copy()}
+    def setPosVel(self, pos, vel):
+        """Set the position and velocity of the particle, post MovedEvent."""
+        if pos != self.particle.pos:
+            self.post(events.EntityMovedEvent(self.entity_id, pos))
+        self.particle.pos = pos
+        self.particle.vel = vel
     def onMoveEntityRequest(self, event):
-        """Push the entity according to the player's wish.
+        """Push the entity according to the player's wish."""
+        self._walk_force.vector = event.force * self._walk_strentgh
 
-        This won't say there, it's only for the very first tests.
-
-        """
-        # TODO: remove.
-        if event.entity_id == self.entity_id:
-            self.moveTo(self._pos + event.force)
 
 
 class AreaModel(evtman.SingleListener):
@@ -132,7 +128,8 @@ class AreaModel(evtman.SingleListener):
             raise AlreadyInAreaError()
         self._entities[entity_id] = entity
         self.post(events.EntityEnteredAreaEvent(entity_id,
-                                                self._area_id, entity.pos))
+                                                self._area_id,
+                                                entity.particle.pos))
     def removeEntity(self, entity):
         """Remove the entity from the area."""
         entity_id = entity.entity_id
@@ -142,6 +139,12 @@ class AreaModel(evtman.SingleListener):
             raise NotInAreaError()
         entity.area_id = None
         self.post(events.EntityLeftAreaEvent(entity_id, self._area_id))
+    def runPhysics(self, timestep):
+        """Compute the physics and apply it."""
+        for entity in self._entities.itervalues():
+            particle = entity.particle
+            new_pos, new_vel = particle.integrate(timestep)
+            entity.setPosVel(new_pos, new_vel)
     def onAreaContentRequest(self, event):
         """Someone asks what's in this area.
 
@@ -179,6 +182,9 @@ class AreaModel(evtman.SingleListener):
             tilemap = self.tile_map.makeSummary()
             self.post(events.AreaContentEvent(self._area_id,
                                               entities, tilemap))
+    def onRunPhysicsEvent(self, event):
+        """The main loop tells us to move our entities."""
+        self.runPhysics(event.timestep)
 
 class WorldModel(evtman.SingleListener):
     """The unique and authoritative top-level representation of the game world.

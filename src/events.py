@@ -25,6 +25,11 @@ class RenderFrameEvent(Event):
     """Draw things on the screen."""
     to_log = False
 
+class RunPhysicsEvent(Event):
+    """The physics engine has work to do."""
+    to_log = False
+    attributes = ('timestep',)
+
 # Commands are Events that are produced by direct order from the player. They
 # are translations of keypresses.  As such, they know NOTHING about entities,
 # areas, etc..  Ideally, a keyboard controller should only issue commands.

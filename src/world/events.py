@@ -53,6 +53,7 @@ class MoveEntityRequest(Event):
 
 class EntityMovedEvent(Event):
     """An entity is in a new position."""
+    to_log = False
     attributes = ('entity_id', 'pos',)
 
 class EntityEnteredAreaEvent(Event):

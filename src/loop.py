@@ -5,7 +5,7 @@
 # Standard library.
 import time
 # My stuff.
-from events import ProcessInputsEvent, RenderFrameEvent
+from events import ProcessInputsEvent, RunPhysicsEvent, RenderFrameEvent
 import evtman
 import time_
 
@@ -26,6 +26,9 @@ class GameLoopController(evtman.SingleListener):
             time_now = time_.wallClock()
             if time_now >= time_update:
                 self.post(ProcessInputsEvent())
+                self._event_manager.pump()
+                #
+                self.post(RunPhysicsEvent(self.PERIOD))
                 self._event_manager.pump()
                 #
                 self.post(RenderFrameEvent())
