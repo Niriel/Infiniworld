@@ -135,3 +135,190 @@ class KineticFrictionForce(object):
         return  v * self.mu
 
 # pylint: enable-msg=R0903
+
+# In infiniworld, all the entities are circle.  Therefore we only have to check
+# collisions between a circle and something else.
+
+class Collision(object):
+    """Represents a collision between a collider and a collidee.
+    
+    To sort the collisions by distance:
+        from operator import attrgetter
+        sorted(collisions, key=attrgetter('distance'))
+    To find the closest:
+        min(collisions, key=attrgetter('distance'))
+    I haven't tested these yet though.
+
+    """
+    def __init__(self, distance, collider, collidee, penetration):
+        self.distance = distance
+        # For the position correction:
+        self.penetration = penetration
+        # For the velocity correction (elastic collisions):
+        self.collider = collider
+        self.collidee = collidee
+    def __str__(self):
+        return "\n".join((self.__class__.__name__,
+                          "    distance: %r" % self.distance,
+                          "    penetration: %r" % self.penetration,
+                          "    collider: %r" % self.collider,
+                          "    collidee: %r" % self.collidee))
+    def correctPosition(self):
+        """Push the collider away from the collidee."""
+        self.collider.pos += self.penetration
+        # All these floating points calculations have errors and too often
+        # we are stuck because the distance is 0.444444444444449 instead of .5,
+        # and the correction does not work.  It may be smart to round the
+        # positions.
+
+class CircularBody(Particle):
+    """A physical body represented by a circle for collision purposes."""
+    def __init__(self, mass, pos, radius):
+        Particle.__init__(self, mass, pos)
+        self.radius = radius
+    def collidesCircle(self, collider):
+        """Is the circular `collider` colliding self?"""
+        # If the distance between the centers is smaller than the sum of the
+        # radii, there is collision.
+        distance = self.pos.dist(collider.pos)
+        radii = self.radius + collider.radius
+        if distance >= radii:
+            return None
+        # Collision detected.  The penetration vector is collinear to the line
+        # between the two centers.  It points from the center of the collidee
+        # (self) to the center of the collider.
+        try:
+            penetration = ((collider.pos - self.pos).normalized() *
+                           (radii - distance))
+        except ZeroDivisionError:
+            # The two bodies share the same center, let's give up.
+            return None
+        return Collision(distance, collider, self, penetration)
+
+
+class RectangularBody(Particle):
+    """A physical body represented by a rectangle for collision purposes.
+    
+    The rectangle is axis-aligned.  That means that its edges are parallel to
+    the x and y axis, they are horizontal and vertical.  You cannot tilt the
+    rectangle.
+    
+    """
+    def __init__(self, mass, pos, size_x, size_y):
+        Particle.__init__(self, mass, pos)
+        self.size_x = size_x
+        self.size_y = size_y
+    def _withCorner(self, corner, collider):
+        """`corner` is a vector."""
+        distance = corner.dist(collider.pos)
+        if distance >= collider.radius:
+            return None
+        try:
+            penetration = ((collider.pos - corner).normalized() *
+                           (collider.radius - distance))
+        except ZeroDivisionError:
+            # The two bodies share the same center, let's give up.
+            return None
+        return Collision(distance, collider, self, penetration)
+    def _withHorizontalEdge(self, y_edge, sign, collider):
+        """Sign = -1 if the other body is under the edge, and +1 if above.
+
+        """
+        # Here I look for the point on the collider's circle that's right
+        # above or under its center.  If there is collision, that's because of
+        # this point.
+        y_other_body = collider.pos.y - sign * collider.radius
+        # Here I am already measuring the penetration, actually. 
+        difference = y_edge - y_other_body
+        # Except that if the sign of the penetration is not correct, there is
+        # no collision.
+        if difference / sign <= 0:
+            return None
+        # Here there is collision, wrap it up.
+        penetration = Vector(0, difference)
+        return Collision(abs(difference), collider, self, penetration)
+    def _withVerticalEdge(self, x_edge, sign, collider):
+        """Sign = -1 if the other body is left ot the edge, and +1 if right.
+
+        """
+        # Here I look for the point on the collider's circle that's exactly
+        # left or right of its center.  If there is collision, that's because
+        # of this point.
+        x_other_body = collider.pos.x - sign * collider.radius
+        # Here I am already measuring the penetration, actually.
+        difference = x_edge - x_other_body
+        # Except that if the sign of the penetration is not correct, there is
+        # no collision.
+        if difference / sign <= 0:
+            return None
+        # Here there is collision, wrap it up.
+        penetration = Vector(difference, 0)
+        return Collision(abs(difference), collider, self, penetration)
+    def collidesCircle(self, collider):
+        """Is the circular `collider` colliding self?"""
+        x1 = self.pos.x - self.size_x / 2 # Left.
+        x2 = x1 + self.size_x             # Right.
+        y1 = self.pos.y - self.size_y / 2 # Bottom.
+        y2 = y1 + self.size_y             # Top.
+        x, y = collider.pos
+
+        # Voronoi cells:
+        #
+        # 7 8 9
+        # 4 5 6
+        # 1 2 3
+        #
+        # 5 means you are inside the rectangle.
+        # 1, 3, 7 and 9: the closest feature is a corner.
+        # 2, 4, 6 and 8: the closest feature is an edge.
+
+        if x <= x1 and y <= y1:
+            return self._withCorner(Vector(x1, y1), collider) # Cell 1.
+        elif x >= x2 and y <= y1:
+            return self._withCorner(Vector(x2, y1), collider) # Cell 3.
+        elif y <= y1:
+            return self._withHorizontalEdge(y1, -1, collider) # Cell 2.
+
+        elif x <= x1 and y >= y2:
+            return self._withCorner(Vector(x1, y2), collider) # Cell 7.
+        elif x >= x2 and y >= y2:
+            return self._withCorner(Vector(x2, y2), collider) # Cell 9.
+        elif y >= y2:
+            return self._withHorizontalEdge(y2, 1, collider)  # Cell 8.
+
+        elif x <= x1:
+            return self._withVerticalEdge(x1, -1, collider)   # Cell 4.
+        elif x >= x2:
+            return self._withVerticalEdge(x2, 1, collider)    # Cell 6.
+        # return None is implicit for cell 5.
+
+if __name__ == '__main__':
+    dude = CircularBody(50, Vector(0, 0), .5)
+#    spider = CircularBody(50, Vector(-2, 0), .5)
+#    print spider.collidesCircle(dude)
+#    spider.pos.x = -1
+#    print spider.collidesCircle(dude)
+#    spider.pos.x = -.9
+#    print spider.collidesCircle(dude)
+#    spider.pos.x = 0
+#    print spider.collidesCircle(dude)
+    tile = RectangularBody(float('inf'), Vector(1, 1), 1, 1)
+    dude.pos.x = .3
+    dude.pos.y = .2
+    collision = tile.collidesCircle(dude)
+    print collision
+    print "Correcting position"
+    collision.correctPosition()
+    print dude
+    print "re-testing collision"
+    collision = tile.collidesCircle(dude)
+    print collision # The distance is 0.49999...9994 and not .5.
+    print "Correcting position"
+    collision.correctPosition()
+    print dude
+    print "re-testing collision"
+    collision = tile.collidesCircle(dude)
+    print collision # The distance is STILL 0.49999...9994 and not .5.
+    # Maybe we should round positions to the millimeter ?  I tried, and if I
+    # do that then the collision is solved after the first pass.
+    
