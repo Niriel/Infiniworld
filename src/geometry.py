@@ -555,6 +555,14 @@ class Vector(object):
 
         """
         return (other.x - self.x) ** 2 + (other.y - self.y) ** 2
+    def round(self, decimals):
+        """Return a vector with x and y rounded at n decimals."""
+        return self.__class__(round(self.x, decimals),
+                              round(self.y, decimals))
+    def iround(self, decimals):
+        """Round x and y rounded at n decimals, internally."""
+        self.x = round(self.x, decimals)
+        self.y = round(self.y, decimals)
 
 # pylint: disable-msg=C0103
 # Invalid names.  Well, I'm doing geometry here, and I'll use the notations

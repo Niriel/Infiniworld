@@ -1,6 +1,7 @@
 """World model."""
 # Standard library.
 import logging
+import math
 import weakref
 # My stuff.
 import events
@@ -72,12 +73,12 @@ class EntityModel(evtman.SingleListener):
         evtman.SingleListener.__init__(self, event_manager)
         self.entity_id = entity_id
         self.area_id = None
-        # By default, an entity has a mass of 60 kg.  Yeah.
-        self.particle = physics.Particle(60, geometry.Vector())
+        # By default, an entity has a mass of 60 kg and a radius of 30 cm.
+        self.body = physics.CircularBody(60, geometry.Vector(), 0.3)
         self._walk_force = physics.ConstantForce(geometry.Vector())
         self._friction_force = physics.KineticFrictionForce(-100)
-        self.particle.forces.add(self._walk_force)
-        self.particle.forces.add(self._friction_force)
+        self.body.forces.add(self._walk_force)
+        self.body.forces.add(self._friction_force)
         self._walk_strentgh = 1000
         #
         self.post(events.EntityCreatedEvent(entity_id))
@@ -86,13 +87,13 @@ class EntityModel(evtman.SingleListener):
         """Return a dictionary with enough info the the View to work with."""
         return {"entity_id" : self.entity_id,
                 "area_id" : self.area_id,
-                "pos": self.particle.pos.copy()}
+                "pos": self.body.pos.copy()}
     def setPosVel(self, pos, vel):
-        """Set the position and velocity of the particle, post MovedEvent."""
-        if pos != self.particle.pos:
+        """Set the position and velocity of the body, post MovedEvent."""
+        if pos != self.body.pos:
             self.post(events.EntityMovedEvent(self.entity_id, pos))
-        self.particle.pos = pos
-        self.particle.vel = vel
+        self.body.pos = pos
+        self.body.vel = vel
     def onMoveEntityRequest(self, event):
         """Push the entity according to the player's wish."""
         self._walk_force.vector = event.force * self._walk_strentgh
@@ -112,7 +113,7 @@ class AreaModel(evtman.SingleListener):
         # the World itself, not by the area.  They can move between areas, or
         # even be in no area at all.
         self._entities = weakref.WeakValueDictionary()
-        self.tile_map = tile.TileMap() 
+        self.tile_map = tile.TileMap()
     def addEntity(self, entity):
         """Add the entity to the area.
 
@@ -129,7 +130,7 @@ class AreaModel(evtman.SingleListener):
         self._entities[entity_id] = entity
         self.post(events.EntityEnteredAreaEvent(entity_id,
                                                 self._area_id,
-                                                entity.particle.pos))
+                                                entity.body.pos))
     def removeEntity(self, entity):
         """Remove the entity from the area."""
         entity_id = entity.entity_id
@@ -139,12 +140,66 @@ class AreaModel(evtman.SingleListener):
             raise NotInAreaError()
         entity.area_id = None
         self.post(events.EntityLeftAreaEvent(entity_id, self._area_id))
+
+    def processCollisionsOnEntities(self, collider, new_pos, new_vel):
+        # Brute force for now: test against all the other entities.
+        collisions = set()
+        for collidee in self._entities.itervalues():
+            if collider is not collidee:
+                collision = collidee.body.collidesCircle(collider.body)
+                if collision is not None:
+                    collisions.add(collision)
+        return collisions
+
+    def processCollisions(self, entity, new_pos, new_vel):
+        collisions = set()
+        collisions |= self.processCollisionsOnEntities(entity, new_pos, new_vel)
+        if collisions:
+            LOGGER.info("collisions: %r" % collisions)
+        # We round the position because the collision reaction is wrong at the
+        # 14th decimal which has no physical meaning and puts us in a place
+        # where we are still colliding.
+        new_pos.iround(6)
+        # And this is to stop sending EntityMovedEvent all over the place when
+        # the speed is measured in micrometer per century.
+        if new_vel.norm() < 0.01:
+            new_vel.x = 0
+            new_vel.y = 0
+        entity.setPosVel(new_pos, new_vel)
+        return bool(collisions)
+
+    def moveEntityByPhysics(self, entity, timestep):
+        body = entity.body
+        # First thing to do is move the entity to where it wants to go.
+        new_pos, new_vel = entity.body.integrate(timestep)
+        if new_pos == body.pos and new_vel.norm() == 0:
+            return False
+        LOGGER.info("Entity %i pos=%r, vel=%r.", entity.entity_id, body.pos, body.vel)
+        # Now we must check whether we moved too fast or not.  Moving by more
+        # than your radius can make you miss collisions.  So when that happens,
+        # we cancel the movement we just did and we use smaller steps.
+        # Recursively.
+        distance = new_pos.dist(body.pos)
+        if distance > body.radius:
+            iter_nb = int(math.ceil((distance - body.radius) / body.radius))
+            LOGGER.info("Too fast by factor %i.", iter_nb)
+            for unused in iter_nb:
+                collided = self.moveEntityByPhysics(entity, timestep / iter_nb)
+                if collided:
+                    # No need to process the other pieces of the time step: we
+                    # already bumped into something.
+                    return collided
+            return False # No collision on any of the time step pieces.
+        # Here we are sure that we moved slowly enough.  Time to check for
+        # collisions.
+        collided = self.processCollisions(entity, new_pos, new_vel)
+        return collided
+
+
     def runPhysics(self, timestep):
         """Compute the physics and apply it."""
         for entity in self._entities.itervalues():
-            particle = entity.particle
-            new_pos, new_vel = particle.integrate(timestep)
-            entity.setPosVel(new_pos, new_vel)
+            self.moveEntityByPhysics(entity, timestep)
     def onAreaContentRequest(self, event):
         """Someone asks what's in this area.
 
