@@ -95,7 +95,8 @@ class EntityModel(evtman.SingleListener):
         self.particle.vel = vel
     def onMoveEntityRequest(self, event):
         """Push the entity according to the player's wish."""
-        self._walk_force.vector = event.force * self._walk_strentgh
+        if event.entity_id == self.entity_id:
+            self._walk_force.vector = event.force * self._walk_strentgh
 
 
 
