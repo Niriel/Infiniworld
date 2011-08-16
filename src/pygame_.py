@@ -58,7 +58,39 @@ class FPSSprite(pygame.sprite.Sprite):
         self.rect.topleft = self._pos
 # pylint: enable-msg=R0903
 
-def makeTileImages():
+def draw3dBorder(image, color, thickness):
+    """Welcome back to the 90s!
+    
+    `color` must be a (r, g, b) or (r, g, b, a) tuple.
+
+    I wish you could give Color.__init__ a Color object as argument to make a
+    copy or to stop worrying about types.  But no :(.
+
+    """
+    color_light = pygame.color.Color(*color)
+    hsla = list(color_light.hsla)
+    hsla[2] = min(int(hsla[2] * 1.2), 100)
+    color_light.hsla = hsla
+    #
+    color_dark = pygame.color.Color(*color)
+    hsla = list(color_dark.hsla)
+    hsla[2] = int(hsla[2] * .8)
+    color_dark.hsla = hsla
+    #
+    max_x, max_y = image.get_size()
+    max_x -= 1
+    max_y -= 1
+    #
+    for i in xrange(thickness):
+        pygame.draw.line(image, color_light, (i, i), (max_x - i, i))
+        pygame.draw.line(image, color_light, (i, i), (i, max_y - i - 1))
+        pygame.draw.line(image, color_dark, (max_x - i, max_y - i),
+                         (i, max_y - i))
+        pygame.draw.line(image, color_dark, (max_x - i, max_y - i),
+                         (max_x - i, i + 1))
+
+
+def makeTileImages(elevation):
     """Generate beautiful bitmaps for displaying sprites."""
     size = (32, 32)
     # From http://hyperphysics.phy-astr.gsu.edu/hbase/vision/cie.html
@@ -75,9 +107,12 @@ def makeTileImages():
         image = pygame.Surface(size)
         # pylint: enable-msg=E1121
         image.fill(color)
+        if elevation == 1:
+            draw3dBorder(image, color, 4)
         images[nature] = image
     return images
-TILE_IMAGES = None
+TILE_IMAGES_LOW = None
+TILE_IMAGES_HIGH = None
 
 class PygameController(evtman.SingleListener):
     """Reads the input from the keyboard and mouse from pygame."""
@@ -301,7 +336,9 @@ class EntityView(evtman.SingleListener):
         """
         if not self._dirty:
             return
-        self.sprite.image.fill((255, 255, 255, 255))
+        self.sprite.image.fill((0, 0, 0, 0)) # Transparent.
+        pygame.draw.circle(self.sprite.image, (255, 255, 255, 255),
+                           (16, 16), 16)
         font = pygame.font.Font(None, 24)
         text = str(self._entity_id)
         text_image = font.render(text, True, (64, 64, 64, 0))
@@ -354,8 +391,9 @@ class AreaView(evtman.SingleListener):
         #
         # There should be a pygame window open by now, so pygame knows which
         # format is better for the tile images.  Creating them now !
-        global TILE_IMAGES
-        TILE_IMAGES = makeTileImages()
+        global TILE_IMAGES_LOW, TILE_IMAGES_HIGH
+        TILE_IMAGES_LOW = makeTileImages(0)
+        TILE_IMAGES_HIGH = makeTileImages(1)
     def createSprite(self, size):
         """Instantiate the sprite, its image and its rect."""
         self.sprite = pygame.sprite.Sprite()
@@ -432,7 +470,11 @@ class AreaView(evtman.SingleListener):
                 else:
                     pos = self._coord_conv.worldToPix(geometry.Vector(x, y))
                     tile_rect.center = pos
-                    tile_image = TILE_IMAGES[tile[0]] # 0: nature.
+                    if tile[1]:
+                        tile_image = TILE_IMAGES_HIGH
+                    else:
+                        tile_image = TILE_IMAGES_LOW
+                    tile_image = tile_image[tile[0]] # 0: nature.
                     image.blit(tile_image, tile_rect)
 
     def render(self):
@@ -457,6 +499,7 @@ class AreaView(evtman.SingleListener):
             entity.render()
         self._entities_group.draw(image)
     def setFollowEntity(self, entity_id):
+        """Center the view on that entity."""
         self._follow_entity_id = entity_id
     def onEntityDestroyedEvent(self, event):
         """An entity was removed from the world."""
@@ -479,7 +522,6 @@ class AreaView(evtman.SingleListener):
             self._tilemap = event.tilemap
     def onViewAreaEvent(self, event):
         """We are looking at a new area."""
-        # TODO: remove.
         self.setAreaId(event.area_id)
     def onControlEntityEvent(self, event):
         """A new entity is controlled."""

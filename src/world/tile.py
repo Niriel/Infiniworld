@@ -41,6 +41,9 @@ class Tile(object):
     def __repr__(self):
         nature = 'NATURE_%s' % NATURES_FROM_ID[self.nature]
         return "%s(%s, %i)" % (self.__class__.__name__, nature, self.height)
+    def isSolid(self):
+        """Solid tiles are subject to collision check."""
+        return self.height == 1
     def makeSummary(self):
         """Serialization-friendly data for passing around in events."""
         return (self.nature, self.height)

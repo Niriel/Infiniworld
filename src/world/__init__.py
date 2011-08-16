@@ -2,6 +2,7 @@
 # Standard library.
 import logging
 import math
+from operator import attrgetter
 import weakref
 # My stuff.
 import events
@@ -73,8 +74,10 @@ class EntityModel(evtman.SingleListener):
         evtman.SingleListener.__init__(self, event_manager)
         self.entity_id = entity_id
         self.area_id = None
-        # By default, an entity has a mass of 60 kg and a radius of 30 cm.
-        self.body = physics.CircularBody(60, geometry.Vector(), 0.3)
+        # By default, an entity has a mass of 60 kg and a radius of 50 cm.
+        # Making them so big allows me to check that my collision code allows
+        # them to just squeeze between two tiles that are one meter apart.
+        self.body = physics.CircularBody(60, geometry.Vector(), 0.5)
         self._walk_force = physics.ConstantForce(geometry.Vector())
         self._friction_force = physics.KineticFrictionForce(-100)
         self.body.forces.add(self._walk_force)
@@ -142,7 +145,63 @@ class AreaModel(evtman.SingleListener):
         entity.area_id = None
         self.post(events.EntityLeftAreaEvent(entity_id, self._area_id))
 
-    def processCollisionsOnEntities(self, collider, new_pos, new_vel):
+    #-------------------------------  Physics.  -------------------------------
+
+    def pruneTiles(self, entity):
+        """Return the coordinates of the solid tiles near the entity.
+
+        Entities are circles, but I look for the tiles in a rectangular area
+        around the entity first.  This function only returns the tiles you have
+        to worry about.  Only on these tiles you need to run the full collision
+        testing code.
+
+        """
+        margin = entity.body.radius
+        x, y = entity.body.pos
+        # Wow, it took me quite some time to figure out these rules.  I wanted
+        # to reduce the tiles to the strict minimum.  The trick is that the
+        # half-integer positions are on the edges of tiles (the tiles are
+        # centered on integer coordinates).  Now, if x_max = 0.5 it means we
+        # have to consider the tiles at x=0 and x=1.  So .5 must be rounded up
+        # to 1.  But if x_min = 0.5, we must also consider the tiles at x = 0
+        # and x = 1, which means that this time, .5 is rounded down to 0.
+        x_min = x - margin # These are all floats: the limits of the entity.
+        x_max = x + margin
+        y_min = y - margin
+        y_max = y + margin
+        tile_x_min = int(-((.5 - x_min) // 1)) # These are integers:
+        tile_x_max = int((.5 + x_max) // 1)    # Coordinates of the tiles to
+        tile_y_min = int(-((.5 - y_min) // 1)) # consider for collisions.
+        tile_y_max = int((.5 + y_max) // 1)
+        coords = set()
+        tiles = self.tile_map.tiles
+        for tile_x in range(tile_x_min, tile_x_max + 1):
+            for tile_y in range(tile_y_min, tile_y_max + 1):
+                try:
+                    # Underscore because module with the name "tile".
+                    tile_ = tiles[(tile_x, tile_y)]
+                except KeyError:
+                    pass
+                else:
+                    if tile_.isSolid():
+                        coords.add((tile_x, tile_y))
+        return coords
+
+    def detectCollisionsWithTiles(self, collider):
+        """Return a set of Collision objects."""
+        coords = self.pruneTiles(collider)
+        collisions = set()
+        tile_body = physics.RectangularBody(float('inf'),
+                                            geometry.Vector(), 1., 1.)
+        for coord in coords:
+            tile_body.pos[:] = coord
+            collision = tile_body.collidesCircle(collider.body)
+            if collision:
+                collisions.add(collision)
+        return collisions
+
+    def detectCollisionsWithEntities(self, collider):
+        """Return a set of Collision objects."""
         # Brute force for now: test against all the other entities.
         collisions = set()
         for collidee in self._entities.itervalues():
@@ -153,54 +212,105 @@ class AreaModel(evtman.SingleListener):
         return collisions
 
     def processCollisions(self, entity, new_pos, new_vel):
-        collisions = set()
-        collisions |= self.processCollisionsOnEntities(entity, new_pos, new_vel)
+        """Process the collisions that occur on the way to new_pos.
+
+        The entity is put in new_pos.  All the collisions are computed.
+
+        If no collision, then the entity is sent to new_pos with the velocity
+        new_vel.
+
+        If there are collision, then the closest one is chosen and processed.
+        The entity is moved the the point resulting from that processing, with
+        the resulting velocity.
+
+        """
+        entity.body.pos = new_pos
+        entity.body.vel = new_vel
+        collisions = self.detectCollisionsWithTiles(entity)
+        collisions |= self.detectCollisionsWithEntities(entity)
         if collisions:
-            LOGGER.info("collisions: %r" % collisions)
-        # We round the position because the collision reaction is wrong at the
-        # 14th decimal which has no physical meaning and puts us in a place
-        # where we are still colliding.
-        new_pos.iround(6)
+            closest = min(collisions, key=attrgetter('distance'))
+            closest.correctPosition()
+            #closest.correctVelocity()
+        else:
+            closest = None
         # And this is to stop sending EntityMovedEvent all over the place when
         # the speed is measured in micrometer per century.
-        if new_vel.norm() < 0.01:
-            new_vel.x = 0
-            new_vel.y = 0
-        entity.setPosVel(new_pos, new_vel)
-        return bool(collisions)
+        if entity.body.vel.norm() < 0.01:
+            entity.body.vel.x = 0
+            entity.body.vel.y = 0
+        return closest
 
     def moveEntityByPhysics(self, entity, timestep):
+        """Run the physics (integration + collisions) on the given entity.
+
+        This function call call itself (with a smaller timestep)  when the
+        entity is too fast.
+
+        """
         body = entity.body
         # First thing to do is move the entity to where it wants to go.
         new_pos, new_vel = entity.body.integrate(timestep)
         if new_pos == body.pos and new_vel.norm() == 0:
             return False
-        LOGGER.info("Entity %i pos=%r, vel=%r.", entity.entity_id, body.pos, body.vel)
+#        LOGGER.info("Entity %i pos=%r, vel=%r.",
+#                    entity.entity_id, body.pos, body.vel)
         # Now we must check whether we moved too fast or not.  Moving by more
         # than your radius can make you miss collisions.  So when that happens,
         # we cancel the movement we just did and we use smaller steps.
         # Recursively.
         distance = new_pos.dist(body.pos)
         if distance > body.radius:
-            iter_nb = int(math.ceil((distance - body.radius) / body.radius))
+            iter_nb = int(math.ceil(distance / body.radius))
             LOGGER.info("Too fast by factor %i.", iter_nb)
-            for unused in iter_nb:
-                collided = self.moveEntityByPhysics(entity, timestep / iter_nb)
-                if collided:
+            for unused in xrange(iter_nb):
+                collision = self.moveEntityByPhysics(entity, timestep / iter_nb)
+                if collision:
                     # No need to process the other pieces of the time step: we
                     # already bumped into something.
-                    return collided
+                    return True
             return False # No collision on any of the time step pieces.
         # Here we are sure that we moved slowly enough.  Time to check for
-        # collisions.
-        collided = self.processCollisions(entity, new_pos, new_vel)
-        return collided
+        # collisions.  We detect the collisions and react to them in order to
+        # find a safe place.  But if we can't find a safe place then we cancel
+        # everything and we put the entity back where it was.  That's why we
+        # store these original values now.
+        pos_ori = body.pos
+        attempts = 10 # Before giving up.
+        while attempts:
+            before = body.pos
+            collision = self.processCollisions(entity, new_pos, new_vel)
+            after = body.pos
+            if not collision:
+                # We found a safe place !
+                break
+            if before == after:  
+                # This correction is stupid, we're about to enter an infinite
+                # loop.  Cancel the movement.
+                break
+            attempts -= 1
+        if collision:
+            # Even during the last attempts we were colliding.  Forget
+            # everything, restore the original position but stop the movement
+            # completely.  We stop the movement, instead of restoring its
+            # original value otherwise during the next physics update we will
+            # likely make the same mistake again.  Unless of course the right
+            # obstacle moved, but so what?
+            LOGGER.warning("Unsolvable collision, reverting position and "
+                           "zero-ing the speed.\n%s", collision)
+            body.pos = pos_ori
+            body.vel[:] = (0, 0)
+        else:
+            self.post(events.EntityMovedEvent(entity.entity_id,
+                                              entity.body.pos))
+        return bool(collision)
 
 
     def runPhysics(self, timestep):
         """Compute the physics and apply it."""
         for entity in self._entities.itervalues():
             self.moveEntityByPhysics(entity, timestep)
+
     def onAreaContentRequest(self, event):
         """Someone asks what's in this area.
 
@@ -301,34 +411,21 @@ class WorldModel(evtman.SingleListener):
         """Return the previous or next area_id in use."""
         return nextThing(self._areas.keys(), area_id, offset)
     def onCreateEntityCommand(self, unused):
-        """Player wants to create a new entity.
-
-        This is not meant to stay, it's only for testing purposes.
-
-        """
-        # TODO: remove.
+        """Player wants to create a new entity."""
         self.createEntity()
     def onCreateAreaCommand(self, unused):
-        """Player wants to create a new area.
-
-        This is not meant to stay, it's only for testing purposes.
-
-        """
-        # TODO: remove
+        """Player wants to create a new area."""
         self.createArea()
     def onViewNextAreaRequest(self, event):
         """Player wants to see another area."""
-        # TODO: remove
         area_id = self.nextArea(event.area_id, event.offset)
         self.post(events.ViewAreaEvent(area_id))
     def onControlNextEntityRequest(self, event):
         """Player wants to control another entity."""
-        # TODO: remove
         entity_id = self.nextEntity(event.entity_id, event.offset)
         self.post(events.ControlEntityEvent(entity_id))
     def onMoveEntityToNextAreaRequest(self, event):
         """Player wants to move an entity to another area."""
-        # TODO: remove
         if event.entity_id is None:
             return
         entity = self._entities[event.entity_id]

@@ -170,6 +170,10 @@ class Collision(object):
         # we are stuck because the distance is 0.444444444444449 instead of .5,
         # and the correction does not work.  It may be smart to round the
         # positions.
+    def correctVelocity(self):
+        """Run the elastic collision code on the two bodies."""
+        self.collider.vel.x = 0
+        self.collider.vel.y = 0
 
 class CircularBody(Particle):
     """A physical body represented by a circle for collision purposes."""
@@ -182,7 +186,16 @@ class CircularBody(Particle):
         # radii, there is collision.
         distance = self.pos.dist(collider.pos)
         radii = self.radius + collider.radius
-        if distance >= radii:
+        # Fight some annoying rounding errors.  I'm not just trying to hide a
+        # real serious problem under the carpet here.  It's just that rounding
+        # errors make `distance` smaller than `radii` on the 17th decimal. When
+        # that tiny penetration vector is applied, the position does not change
+        # and we keep colliding forever at every frame.  So it's not in the
+        # correction part that I must hack this thing, that's in the detection
+        # part.  Right here.  That feels dirty.
+        #
+        # if distance >= radii:
+        if round(distance - radii, 6) >= 0:
             return None
         # Collision detected.  The penetration vector is collinear to the line
         # between the two centers.  It points from the center of the collidee
@@ -211,7 +224,8 @@ class RectangularBody(Particle):
     def _withCorner(self, corner, collider):
         """`corner` is a vector."""
         distance = corner.dist(collider.pos)
-        if distance >= collider.radius:
+        # I explain why I round in CircularBody.collidesCircle.
+        if round(distance - collider.radius, 6) >= 0:
             return None
         try:
             penetration = ((collider.pos - corner).normalized() *
@@ -231,8 +245,8 @@ class RectangularBody(Particle):
         # Here I am already measuring the penetration, actually. 
         difference = y_edge - y_other_body
         # Except that if the sign of the penetration is not correct, there is
-        # no collision.
-        if difference / sign <= 0:
+        # no collision.  I explain why I round in CircularBody.collidesCircle.
+        if round(difference, 6) / sign <= 0:
             return None
         # Here there is collision, wrap it up.
         penetration = Vector(0, difference)
@@ -248,8 +262,8 @@ class RectangularBody(Particle):
         # Here I am already measuring the penetration, actually.
         difference = x_edge - x_other_body
         # Except that if the sign of the penetration is not correct, there is
-        # no collision.
-        if difference / sign <= 0:
+        # no collision.  I explain why I round in CircularBody.collidesCircle.
+        if round(difference, 6) / sign <= 0:
             return None
         # Here there is collision, wrap it up.
         penetration = Vector(difference, 0)
