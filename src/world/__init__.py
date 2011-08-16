@@ -276,28 +276,23 @@ class AreaModel(evtman.SingleListener):
         # everything and we put the entity back where it was.  That's why we
         # store these original values now.
         pos_ori = body.pos
-        attempts = 10 # Before giving up.
-        while attempts:
+        for unused in xrange(10):
             before = body.pos
             collision = self.processCollisions(entity, new_pos, new_vel)
-            after = body.pos
             if not collision:
                 # We found a safe place !
                 break
-            if before == after and attempts < 10:
-                # This correction is stupid, we're about to enter an infinite
-                # loop.  Cancel the movement.
+            if before == body.pos:
+                # The corrections brings us back where we are.  Exit before
+                # getting stuck in an endless loop.
                 break
-            attempts -= 1
         if collision:
-            # Even during the last attempts we were colliding.  Forget
+            # Even during the last attempt we were colliding.  Forget
             # everything, restore the original position but stop the movement
             # completely.  We stop the movement, instead of restoring its
             # original value otherwise during the next physics update we will
             # likely make the same mistake again.  Unless of course the right
             # obstacle moved, but so what?
-            LOGGER.warning("Unsolvable collision.  Iterations left: %i.\n%s",
-                           attempts, collision)
             body.pos = pos_ori
             body.vel[:] = (0, 0)
         else:
