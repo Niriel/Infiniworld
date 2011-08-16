@@ -284,7 +284,7 @@ class AreaModel(evtman.SingleListener):
             if not collision:
                 # We found a safe place !
                 break
-            if before == after:  
+            if before == after and attempts < 10:
                 # This correction is stupid, we're about to enter an infinite
                 # loop.  Cancel the movement.
                 break
@@ -296,8 +296,8 @@ class AreaModel(evtman.SingleListener):
             # original value otherwise during the next physics update we will
             # likely make the same mistake again.  Unless of course the right
             # obstacle moved, but so what?
-            LOGGER.warning("Unsolvable collision, reverting position and "
-                           "zero-ing the speed.\n%s", collision)
+            LOGGER.warning("Unsolvable collision.  Iterations left: %i.\n%s",
+                           attempts, collision)
             body.pos = pos_ori
             body.vel[:] = (0, 0)
         else:
