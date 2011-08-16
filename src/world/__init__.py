@@ -211,10 +211,10 @@ class AreaModel(evtman.SingleListener):
                     collisions.add(collision)
         return collisions
 
-    def processCollisions(self, entity, new_pos, new_vel):
-        """Process the collisions that occur on the way to new_pos.
+    def processCollisions(self, entity):
+        """Process the collisions where entity stands.
 
-        The entity is put in new_pos.  All the collisions are computed.
+        All the collisions are computed.
 
         If no collision, then the entity is sent to new_pos with the velocity
         new_vel.
@@ -224,14 +224,12 @@ class AreaModel(evtman.SingleListener):
         the resulting velocity.
 
         """
-        entity.body.pos = new_pos
-        entity.body.vel = new_vel
         collisions = self.detectCollisionsWithTiles(entity)
         collisions |= self.detectCollisionsWithEntities(entity)
         if collisions:
             closest = min(collisions, key=attrgetter('distance'))
             closest.correctPosition()
-            #closest.correctVelocity()
+            closest.correctVelocity()
         else:
             closest = None
         # And this is to stop sending EntityMovedEvent all over the place when
@@ -276,28 +274,23 @@ class AreaModel(evtman.SingleListener):
         # everything and we put the entity back where it was.  That's why we
         # store these original values now.
         pos_ori = body.pos
-        for unused in xrange(10):
-            before = body.pos
-            collision = self.processCollisions(entity, new_pos, new_vel)
-            if not collision:
-                # We found a safe place !
-                break
-            if before == body.pos:
-                # The corrections brings us back where we are.  Exit before
-                # getting stuck in an endless loop.
-                break
+        body.pos = new_pos
+        body.vel = new_vel
+        attempt = 10
+        collision = True # Dummy value to start the loop.
+        while attempt and collision:
+            collision = self.processCollisions(entity)
+            attempt -= 1
         if collision:
-            # Even during the last attempt we were colliding.  Forget
-            # everything, restore the original position but stop the movement
-            # completely.  We stop the movement, instead of restoring its
-            # original value otherwise during the next physics update we will
-            # likely make the same mistake again.  Unless of course the right
-            # obstacle moved, but so what?
-            body.pos = pos_ori
-            body.vel[:] = (0, 0)
+            if attempt == 0:
+                LOGGER.info("Collision iteration exceeded, "
+                            "solved by reverting.")
+                body.pos = pos_ori
+                body.vel[:] = (0, 0)
         else:
             self.post(events.EntityMovedEvent(entity.entity_id,
                                               entity.body.pos))
+
         return bool(collision)
 
 

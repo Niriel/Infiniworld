@@ -4,6 +4,7 @@
 """
 # Standard library.
 from __future__ import division
+import math
 # My stuff.
 from geometry import Vector
 
@@ -69,8 +70,11 @@ class Particle(object):
         """
         object.__init__(self)
         # Storing the 1 / mass forbids massless objects and allow infinite
-        # masses.
+        # masses.  1/mass is used during the integration of motion:
+        # acceleration = forces / mass.
         self.one_over_mass = 1 / mass
+        # mass is used in the elastic collision code.
+        self.mass = mass
         self.pos = pos
         self.vel = Vector()
         self.forces = set()
@@ -172,8 +176,10 @@ class Collision(object):
         # positions.
     def correctVelocity(self):
         """Run the elastic collision code on the two bodies."""
-        self.collider.vel.x = 0
-        self.collider.vel.y = 0
+        vder, vdee = elasticCollisionVelocities(self.collider, self.collidee,
+                                                self.penetration.normalized())
+        self.collider.vel = vder
+        self.collidee.vel = vdee
 
 class CircularBody(Particle):
     """A physical body represented by a circle for collision purposes."""
@@ -305,6 +311,42 @@ class RectangularBody(Particle):
         elif x >= x2:
             return self._withVerticalEdge(x2, 1, collider)    # Cell 6.
         # return None is implicit for cell 5.
+
+#----------------------------  Elastic collision.  ----------------------------
+
+def elasticCollisionSpeed(m1, v1, m2, v2):
+    """Elastic collision, scalars."""
+    if math.isinf(m1) and math.isinf(m2):
+        # It's impossible to change the speed of an infinitely heavy thing. You
+        # just don't do it.  Don't.
+        return v1, v2
+    if math.isinf(m1):
+        # Typical of something bumping on a wall or something.  The wall desn't
+        # feel a thing.
+        return v1, -v2
+    if math.isinf(m2):
+        # Ditto.
+        return -v1, v2
+    # http://en.wikipedia.org/wiki/Elastic_collision
+    u1 = (v1 * (m1 - m2) + 2 * m2 * v2) / (m1 + m2)
+    u2 = (v2 * (m1 - m2) + 2 * m1 * v1) / (m1 + m2)
+    return u1, u2
+
+def elasticCollisionVelocities(part1, part2, normal):
+    """Elastic collision, vectors."""
+    # Decompose the velocity on the normal and tangential axis.
+    v1n = part1.vel.dot(normal)    # These are scalar...
+    v2n = part2.vel.dot(normal)
+    v1t = part1.vel - v1n * normal # ... and these are vectors.
+    v2t = part2.vel - v2n * normal
+    # Elastic collision modifies the normal components only.
+    u1n, u2n = elasticCollisionSpeed(part1.mass, v1n,
+                                     part2.mass, v2n)
+    # Back to vectors.
+    v1 = u1n * normal + v1t
+    v2 = u2n * normal + v2t
+    return v1, v2
+
 
 if __name__ == '__main__':
     dude = CircularBody(50, Vector(0, 0), .5)
