@@ -7,8 +7,8 @@ import weakref
 # My stuff.
 import events
 import evtman
-import gen
 import geometry
+import materials
 import physics
 import tile
 
@@ -77,11 +77,12 @@ class EntityModel(evtman.SingleListener):
         # By default, an entity has a mass of 60 kg and a radius of 50 cm.
         # Making them so big allows me to check that my collision code allows
         # them to just squeeze between two tiles that are one meter apart.
-        self.body = physics.CircularBody(60, geometry.Vector(), 0.5)
+        self.body = physics.CircularBody(60, geometry.Vector(),
+                                         materials.MATERIAL_FLESH, 0.5)
         self._walk_force = physics.ConstantForce(geometry.Vector())
-        self._friction_force = physics.KineticFrictionForce(-100)
+        self.friction_force = physics.KineticFrictionForce(-100)
         self.body.forces.add(self._walk_force)
-        self.body.forces.add(self._friction_force)
+        self.body.forces.add(self.friction_force)
         self._walk_strentgh = 1000
         #
         self.post(events.EntityCreatedEvent(entity_id))
@@ -132,6 +133,7 @@ class AreaModel(evtman.SingleListener):
         if entity_id in self._entities:
             raise AlreadyInAreaError()
         self._entities[entity_id] = entity
+        self.affectEntityWithTile(entity)
         self.post(events.EntityEnteredAreaEvent(entity_id,
                                                 self._area_id,
                                                 entity.body.pos))
@@ -145,7 +147,39 @@ class AreaModel(evtman.SingleListener):
         entity.area_id = None
         self.post(events.EntityLeftAreaEvent(entity_id, self._area_id))
 
+    def tileCoordAt(self, pos):
+        """Return the coordinate of the tile corresponding to the position.
+        
+        Tiles are centered at integer positions.  The tile of coordinate (0, 0)
+        for example has its center at the position Vector(0, 0).  That's handy.
+        
+        The tiles borders are at half-integer positions.  The tile (0, 0) is
+        limited x = -.5, x = +.5, y = -.5 and y = +5.  When the position is an
+        exact half integer, we need to decide on which of the two or four
+        possible tiles you stand.  We consider that (-.5, 0) belongs to tile
+        (0, 0) but that (.5, 0) belongs to (1, 0).  Tiles start at the half
+        integers, and finish just before the next half integers.  This works
+        both for x and y.
+        
+        """
+        tile_x = int((.5 + pos.x) // 1)
+        tile_y = int((.5 + pos.y) // 1)
+        return tile_x, tile_y
+
     #-------------------------------  Physics.  -------------------------------
+
+    def affectEntityWithTile(self, entity):
+        """Apply the effect of tile on which the entity stands."""
+        coord = self.tileCoordAt(entity.body.pos)
+        try:
+            tile_ = self.tile_map.tiles[coord]
+        except KeyError:
+            friction = 0
+        else:
+            nature = tile_.nature
+            material = tile.MATERIALS[nature]
+            friction = material.friction
+        entity.friction_force.mu = friction
 
     def pruneTiles(self, entity):
         """Return the coordinates of the solid tiles near the entity.
@@ -191,10 +225,13 @@ class AreaModel(evtman.SingleListener):
         """Return a set of Collision objects."""
         coords = self.pruneTiles(collider)
         collisions = set()
-        tile_body = physics.RectangularBody(float('inf'),
-                                            geometry.Vector(), 1., 1.)
         for coord in coords:
-            tile_body.pos[:] = coord
+            tile_nature = self.tile_map.tiles[coord].nature
+            material = tile.MATERIALS[tile_nature]
+            tile_body = physics.RectangularBody(float('inf'),
+                                            geometry.Vector(coord),
+                                            material,
+                                            1., 1.)
             collision = tile_body.collidesCircle(collider.body)
             if collision:
                 collisions.add(collision)
@@ -289,15 +326,16 @@ class AreaModel(evtman.SingleListener):
                 body.vel[:] = (0, 0)
         return bool(collision)
 
-
     def runPhysics(self, timestep):
         """Compute the physics and apply it."""
         for entity in self._entities.itervalues():
             before = entity.body.pos
             self.moveEntityByPhysics(entity, timestep)
-            if entity.body.pos != before:
-                self.post(events.EntityMovedEvent(entity.entity_id,
-                                                  entity.body.pos))
+            after = entity.body.pos
+            if after != before:
+                self.affectEntityWithTile(entity)
+                self.post(events.EntityMovedEvent(entity.entity_id, after))
+
 
     def onAreaContentRequest(self, event):
         """Someone asks what's in this area.

@@ -5,6 +5,7 @@ A tile covers an entire 1 by 1 meter surface.  So a boulder is not a tile,
 a boulder is ON a tile.
 
 """
+import materials
 
 # Natural.
 NATURE_STONE = 0
@@ -13,14 +14,19 @@ NATURE_GRASS = 2
 NATURE_SAND = 3
 NATURE_SHALLOWWATER = 4
 NATURE_DEEPWATER = 5
+# Artificial.
+NATURE_RUBBER = 100
+
 
 NATURES_FROM_NAME = {}
 NATURES_FROM_ID = {}
+MATERIALS = {}
 for _name, _value in globals().items():
     if _name.startswith('NATURE_'):
         _name = _name[7:]
         NATURES_FROM_NAME[_name] = _value
         NATURES_FROM_ID[_value] = _name
+        MATERIALS[_value] = getattr(materials, 'MATERIAL_%s' % _name)
 
 # pylint: disable-msg=R0903
 # Too few public methods.  Well, that's a dumb container, so yeah.

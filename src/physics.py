@@ -75,6 +75,7 @@ class Particle(object):
         self.one_over_mass = 1 / mass
         # mass is used in the elastic collision code.
         self.mass = mass
+        # And the rest.
         self.pos = pos
         self.vel = Vector()
         self.forces = set()
@@ -181,10 +182,15 @@ class Collision(object):
         self.collider.vel = vder
         self.collidee.vel = vdee
 
-class CircularBody(Particle):
-    """A physical body represented by a circle for collision purposes."""
-    def __init__(self, mass, pos, radius):
+class Body(Particle):
+    def __init__(self, mass, pos, material):
         Particle.__init__(self, mass, pos)
+        self.material = material
+
+class CircularBody(Body):
+    """A physical body represented by a circle for collision purposes."""
+    def __init__(self, mass, pos, material, radius):
+        Body.__init__(self, mass, pos, material)
         self.radius = radius
     def collidesCircle(self, collider):
         """Is the circular `collider` colliding self?"""
@@ -215,7 +221,7 @@ class CircularBody(Particle):
         return Collision(distance, collider, self, penetration)
 
 
-class RectangularBody(Particle):
+class RectangularBody(Body):
     """A physical body represented by a rectangle for collision purposes.
     
     The rectangle is axis-aligned.  That means that its edges are parallel to
@@ -223,8 +229,8 @@ class RectangularBody(Particle):
     rectangle.
     
     """
-    def __init__(self, mass, pos, size_x, size_y):
-        Particle.__init__(self, mass, pos)
+    def __init__(self, mass, pos, material, size_x, size_y):
+        Body.__init__(self, mass, pos, material)
         self.size_x = size_x
         self.size_y = size_y
     def _withCorner(self, corner, collider):
@@ -342,9 +348,16 @@ def elasticCollisionVelocities(part1, part2, normal):
     # Elastic collision modifies the normal components only.
     u1n, u2n = elasticCollisionSpeed(part1.mass, v1n,
                                      part2.mass, v2n)
+    # Apply material efficiencies.
+    eff_n = part1.material.eff_n * part2.material.eff_n
+    eff_t = part1.material.eff_t * part2.material.eff_t
+    u1n *= eff_n
+    u2n *= eff_n
+    u1t = v1t * eff_t
+    u2t = v2t * eff_t
     # Back to vectors.
-    v1 = u1n * normal + v1t
-    v2 = u2n * normal + v2t
+    v1 = u1n * normal + u1t
+    v2 = u2n * normal + u2t
     return v1, v2
 
 

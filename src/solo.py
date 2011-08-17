@@ -10,7 +10,7 @@ import log
 import loop
 import player
 import pygame_
-import world
+import world.gen
 
 def main():
     """Run Infiniworld in single player mode."""

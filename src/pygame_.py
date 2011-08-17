@@ -97,6 +97,7 @@ def makeTileImages(elevation):
     colors = {world.tile.NATURE_DEEPWATER: (92, 138, 202),
               world.tile.NATURE_DIRT: (152, 118, 84),
               world.tile.NATURE_GRASS: (0, 163, 71),
+              world.tile.NATURE_RUBBER: (32, 32, 32),
               world.tile.NATURE_SAND: (234, 231, 94),
               world.tile.NATURE_SHALLOWWATER: (110, 175, 199),
               world.tile.NATURE_STONE: (128, 128, 128)}
