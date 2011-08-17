@@ -287,17 +287,17 @@ class AreaModel(evtman.SingleListener):
                             "solved by reverting.")
                 body.pos = pos_ori
                 body.vel[:] = (0, 0)
-        else:
-            self.post(events.EntityMovedEvent(entity.entity_id,
-                                              entity.body.pos))
-
         return bool(collision)
 
 
     def runPhysics(self, timestep):
         """Compute the physics and apply it."""
         for entity in self._entities.itervalues():
+            before = entity.body.pos
             self.moveEntityByPhysics(entity, timestep)
+            if entity.body.pos != before:
+                self.post(events.EntityMovedEvent(entity.entity_id,
+                                                  entity.body.pos))
 
     def onAreaContentRequest(self, event):
         """Someone asks what's in this area.
