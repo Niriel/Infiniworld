@@ -24,6 +24,7 @@ class ProcessInputsEvent(Event):
 class RenderFrameEvent(Event):
     """Draw things on the screen."""
     to_log = False
+    attributes = ('ratio',)
 
 class RunPhysicsEvent(Event):
     """The physics engine has work to do."""
