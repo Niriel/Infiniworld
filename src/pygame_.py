@@ -220,15 +220,15 @@ class PygameView(evtman.SingleListener):
         #
         fps_sprite = FPSSprite((0, 0))
         self._group.add(fps_sprite)
-    def render(self):
+    def render(self, ratio):
         """Display things on screen."""
-        self._area_view.render()
+        self._area_view.render(ratio)
         self._group.update()
         self._group.draw(self._surface)
         pygame.display.flip()
-    def onRenderFrameEvent(self, unused):
+    def onRenderFrameEvent(self, event):
         """The game loop asks us to draw something."""
-        self.render()
+        self.render(event.ratio)
 
 
 class CoordinatesConverter(object):
@@ -309,8 +309,11 @@ class EntityView(evtman.SingleListener):
     def __init__(self, event_manager, entity_id):
         evtman.SingleListener.__init__(self, event_manager)
         self._entity_id = entity_id
-        # World coordinates.
-        self.pos = geometry.Vector()
+        # World coordinates.  The apparent position is interpolated between
+        # these two positions.
+        self.old_pos = geometry.Vector()
+        self.new_pos = geometry.Vector()
+        self.int_pos = geometry.Vector() # The interpolated one.
         #
         self.sprite = None
         self.createSprite()
@@ -319,7 +322,9 @@ class EntityView(evtman.SingleListener):
         """Configure the view using the info from the summary."""
         if summary['entity_id'] != self._entity_id:
             raise ValueError("entity_id mismatch")
-        self.pos.icopy(summary['pos'])
+        pos = summary['pos']
+        self.old_pos = pos
+        self.new_pos = pos
     def createSprite(self):
         """Instantiate the sprite, its image and its rect."""
         self.sprite = pygame.sprite.Sprite()
@@ -350,14 +355,37 @@ class EntityView(evtman.SingleListener):
         self._dirty = False
     def setCoords(self, vector):
         """Set the world position of the entity."""
-        self.pos.icopy(vector)
+        self.old_pos = self.new_pos
+        self.new_pos = vector
+    def interpolatePosition(self, ratio):
+        """Compute where the entity should be now.
+
+        We render the frames more often than we update the physics.  There
+        is a need for interpolation.
+
+        We do a simple linear interpolation between the last two known physics
+        states.
+
+        This means that we are always showing something that is a little bit in
+        the past.  That's okay, we are talking about a twentieth of a second
+        here (if the physics engine runs at 20 Hz).
+
+        """
+        # It is important to store the interpolated position on the object
+        # because it is used by the AreaView to center itself. 
+        self.int_pos = (self.old_pos * (1 - ratio) +
+                        self.new_pos * ratio)
     def worldToPix(self, coord_conv):
         """Calculate the pixel position of the entity."""
-        self.sprite.rect.center = coord_conv.worldToPix(self.pos)
+        self.sprite.rect.center = coord_conv.worldToPix(self.int_pos)
     def onEntityMovedEvent(self, event):
         """An EntityModel has changed position."""
         if event.entity_id == self._entity_id:
             self.setCoords(event.pos)
+    def onEntityStoppedEvent(self, event):
+        """An EntityModel has changed position."""
+        if event.entity_id == self._entity_id:
+            self.setCoords(self.new_pos)
 
 class AreaView(evtman.SingleListener):
     """Display a portion of the world
@@ -478,7 +506,7 @@ class AreaView(evtman.SingleListener):
                     tile_image = tile_image[tile[0]] # 0: nature.
                     image.blit(tile_image, tile_rect)
 
-    def render(self):
+    def render(self, ratio):
         """Draw the landscape, the characters, etc.."""
         image = self.sprite.image
         image.fill((64, 64, 64))
@@ -491,7 +519,8 @@ class AreaView(evtman.SingleListener):
             except KeyError:
                 pass # We just leave the converter where it is.
             else:
-                self._coord_conv.setRefWorld(entity.pos)
+                entity.interpolatePosition(ratio)
+                self._coord_conv.setRefWorld(entity.int_pos)
         # Tile map.
         self.renderTiles()
         # Entities.

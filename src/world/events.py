@@ -56,6 +56,11 @@ class EntityMovedEvent(Event):
     to_log = False
     attributes = ('entity_id', 'pos',)
 
+class EntityStoppedEvent(Event):
+    """An entity has stopped moving."""
+    to_log = False
+    attributes = ('entity_id',)
+
 class EntityEnteredAreaEvent(Event):
     """An entity entered an area."""
     attributes = ('entity_id', 'area_id', 'pos')

@@ -84,6 +84,7 @@ class EntityModel(evtman.SingleListener):
         self.body.forces.add(self._walk_force)
         self.body.forces.add(self.friction_force)
         self._walk_strentgh = 1000
+        self.is_moving = False
         #
         self.post(events.EntityCreatedEvent(entity_id))
         LOGGER.info("Entity %i created.", entity_id)
@@ -332,9 +333,14 @@ class AreaModel(evtman.SingleListener):
             before = entity.body.pos
             self.moveEntityByPhysics(entity, timestep)
             after = entity.body.pos
-            if after != before:
-                self.affectEntityWithTile(entity)
+            if before != after:
+                entity.is_moving = True
                 self.post(events.EntityMovedEvent(entity.entity_id, after))
+                self.affectEntityWithTile(entity)
+            if entity.is_moving:
+                if entity.body.vel == geometry.Vector(0, 0):
+                    entity.is_moving = False
+                    self.post(events.EntityStoppedEvent(entity.entity_id))
 
 
     def onAreaContentRequest(self, event):
