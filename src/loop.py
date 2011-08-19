@@ -43,7 +43,7 @@ class GameLoopController(evtman.SingleListener):
         time_finished = 0
         # This are the times at which we should run the next inputs physics
         # or frame renderings.  Let's do it right now for a start.
-        input_next = physics_next = frame_next = time.time()
+        input_next = physics_next = frame_next = time_.wallClock()
         # This is used for the interpolation of the frames between two physics
         # states.
         physics_prev_1 = 0
@@ -127,7 +127,7 @@ class GameLoopController(evtman.SingleListener):
                        (physics_prev_2, physics_prev_1)
 
             # Start panicking if we get way behind.  Updating the physics of
-            # the world is expecting to take less time than rendering frames of
+            # the world is expected to take less time than rendering frames or
             # polling user inputs from the network.  Something's going wrong
             # here.  This can be triggered if, during the game, you start
             # Firefox or something like that, stealing CPU time from the game.
