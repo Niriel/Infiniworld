@@ -525,6 +525,7 @@ class AreaView(evtman.SingleListener):
         self.renderTiles()
         # Entities.
         for entity in self._entities.itervalues():
+            entity.interpolatePosition(ratio)
             entity.worldToPix(self._coord_conv)
             entity.render()
         self._entities_group.draw(image)
