@@ -17,3 +17,9 @@
 # Temporary files created by emacs or gedit.
 *.*~
 
+# Gimp files: only the png versions of the sprites should be committed.
+*.xcf
+
+# Screen shots.
+var/screenshots/*.png
+
