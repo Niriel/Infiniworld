@@ -3,40 +3,39 @@
 
 """
 # Standard library.
+import os
 import logging
 # My stuff.
-import evtman
-import log
-import loop
-import player
-import pygame_
-import world.gen
+import bunny
+import directories
+import infiniworld
+
+def setUpLogging(file_name):
+    path = os.path.join(directories.DIR_VAR_LOG, file_name)
+    infiniworld.log.setup(path)
 
 def main():
     """Run Infiniworld in single player mode."""
-    log.setup('infiniworld_solo.log')
+    setUpLogging('infiniworld_solo.log')
     logger = logging.getLogger()
-    logger.debug("Starting...")
-    event_manager = evtman.EventManager()
-    game_loop_controller = loop.GameLoopController(event_manager)
-    world_model = world.gen.GenerateWorld(event_manager, 3, (128, 128))
-    player_controller = player.PlayerController(event_manager)
-    with pygame_.Pygame():
-        pygame_view = pygame_.PygameView(event_manager,
-                                         u"Infiniworld", (800, 480))
-        pygame_controller = pygame_.PygameController(event_manager)
-        # Run the game until a QuitEvent is posted.
-        game_loop_controller.run()
-        logger.info("Stopping...")
-    # Unregistering at the end is not necessary but I do it so that PyDev and
-    # PyLint stop complaining about unused variables.
-    game_loop_controller.unregister()
-    world_model.unregister()
-    player_controller.unregister()
-    pygame_view.unregister()
-    pygame_controller.unregister()
-    #
+    logger.info("Starting...")
+    event_manager = infiniworld.evtman.EventManager()
+    bunny.game.Game(event_manager)
+    logger.info("Good bye!")
     logging.shutdown()
 
 if __name__ == '__main__':
-    main()
+    PROFILE = False
+    if PROFILE:
+        try:
+            import cProfile as profile
+        except ImportError:
+            # pylint: disable-msg=W0404
+            # Complains about reimporting 'profile'.
+            import profile
+            # pylint: enable-msg=W0404
+        profile.run('main()', 'profile.prf')
+        import pstats
+        pstats.Stats('profile.prf').sort_stats('time').print_stats(50)
+    else:
+        main()

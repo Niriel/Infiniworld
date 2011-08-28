@@ -7,7 +7,7 @@ from sys import getsizeof, stderr
 from itertools import chain
 from collections import deque
 
-def total_size(o, handlers={}, verbose=False):
+def total_size(o, handlers=None, verbose=False):
     """Returns the approximate memory footprint an object and all of its contents.
 
     Automatically finds the contents of the following builtin containers and
@@ -18,6 +18,8 @@ def total_size(o, handlers={}, verbose=False):
                     OtherContainerClass: OtherContainerClass.get_elements}
 
     """
+    if handlers is None:
+        handlers = {}
     dict_handler = lambda d: chain.from_iterable(d.items())
     all_handlers = {tuple: iter,
                     list: iter,
@@ -41,7 +43,8 @@ def total_size(o, handlers={}, verbose=False):
 
         for typ, handler in all_handlers.items():
             if isinstance(o, typ):
-                s += sum(map(sizeof, handler(o)))
+                s += sum([sizeof(unused) for unused in handler(o)])
+#                s += sum(map(sizeof, handler(o)))
                 break
         return s
 
