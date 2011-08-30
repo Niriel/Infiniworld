@@ -49,7 +49,7 @@ class Game(evtman.SingleListener):
         #
         with pygame_.Pygame():
             self._pygame_view = pygame_.PygameView(event_manager,
-                                                   u"Infiniworld", (800, 480))
+                                                   u"Apocalypse Bunny", (800, 480))
             assets.load()
             self._title_view = views.StartScreenView(event_manager)
             self._pygame_view.addView(self._title_view)
