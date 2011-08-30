@@ -46,14 +46,14 @@ def GenerateInterestingTileMap(size, obstacle_density):
             nature = tiles[seed].nature
             # All the available tiles around the seed are going to be new
             # seeds.
-            around = {(seed[0] - 1, seed[1] - 1),
-                      (seed[0], seed[1] - 1),
-                      (seed[0] + 1, seed[1] - 1),
-                      (seed[0] - 1, seed[1]),
-                      (seed[0] + 1, seed[1]),
-                      (seed[0] - 1, seed[1] + 1),
-                      (seed[0], seed[1] + 1),
-                      (seed[0] + 1, seed[1] + 1)}
+            around = set(((seed[0] - 1, seed[1] - 1),
+                          (seed[0], seed[1] - 1),
+                          (seed[0] + 1, seed[1] - 1),
+                          (seed[0] - 1, seed[1]),
+                          (seed[0] + 1, seed[1]),
+                          (seed[0] - 1, seed[1] + 1),
+                          (seed[0], seed[1] + 1),
+                          (seed[0] + 1, seed[1] + 1)))
             # Sets are wonderful <3.
             around &= available
             seeds |= around
